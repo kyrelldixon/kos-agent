@@ -1,0 +1,41 @@
+default_install_hook_types = ["pre-commit"]
+fail_fast = false
+
+[[repos]]
+repo = "builtin"
+hooks = [
+  { id = "trailing-whitespace" },
+  { id = "check-json" },
+  { id = "check-toml" },
+  { id = "end-of-file-fixer" },
+]
+
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "biome-check",
+    name = "Biome check",
+    language = "system",
+    entry = "bunx biome check --write",
+    files = "\\.(ts|tsx|js|jsx|json)$",
+    pass_filenames = true,
+  },
+  {
+    id = "typecheck",
+    name = "TypeScript typecheck",
+    language = "system",
+    entry = "bunx tsc --noEmit",
+    files = "\\.(ts|tsx)$",
+    pass_filenames = false,
+    always_run = true,
+  },
+  {
+    id = "varlock-scan",
+    name = "Varlock secret scan",
+    language = "system",
+    entry = "bunx varlock scan --staged",
+    always_run = true,
+    pass_filenames = false,
+  },
+]

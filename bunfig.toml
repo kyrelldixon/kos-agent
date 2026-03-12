@@ -1,0 +1,3 @@
+[run]
+env = false
+preload = ["varlock/auto-load"]
