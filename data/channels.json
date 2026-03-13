@@ -1,0 +1,11 @@
+{
+  "allowedUsers": ["REPLACE_WITH_YOUR_SLACK_USER_ID"],
+  "channels": {},
+  "workspaces": [
+    { "label": "kyrell-os", "path": "~/projects/kyrell-os" },
+    { "label": "Agent System", "path": "~/projects/agent-system" },
+    { "label": "Vault", "path": "~/kyrell-os-vault" },
+    { "label": "kos-kit", "path": "~/projects/kos-kit" }
+  ],
+  "globalDefault": "~/projects/kyrell-os"
+}
