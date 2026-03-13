@@ -4,8 +4,6 @@
   "type": "module",
   "scripts": {
     "dev": "bunx varlock run -- bun --watch src/index.ts",
-    "dev:restate": "restate-server",
-    "register": "restate deployments register http://localhost:9080",
     "test": "bun test",
     "lint": "bunx biome check .",
     "format": "bunx biome format --write ."
