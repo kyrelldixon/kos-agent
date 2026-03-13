@@ -3,13 +3,13 @@ import { serve } from "inngest/hono";
 import { createBoltApp } from "@/bolt/app";
 import { registerMessageListener } from "@/bolt/listeners/message";
 import { inngest } from "@/inngest/client";
-import { acknowledgeMessage } from "@/inngest/functions/index";
+import { acknowledgeMessage, sendReply } from "@/inngest/functions/index";
 
 // Must delete before Agent SDK query() — SDK detects Claude Code env and changes behavior.
 delete process.env.CLAUDECODE;
 
 // Inngest functions — added as implemented (Tasks 5-9)
-const functions = [acknowledgeMessage];
+const functions = [acknowledgeMessage, sendReply];
 
 const hono = new Hono();
 hono.on(
