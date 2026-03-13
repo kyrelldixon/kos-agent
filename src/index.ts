@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 import { serve } from "inngest/hono";
-import { createBoltApp } from "./bolt/app.ts";
-import { registerMessageListener } from "./bolt/listeners/message.ts";
-import { inngest } from "./inngest/client.ts";
-import { acknowledgeMessage } from "./inngest/functions/index.ts";
+import { createBoltApp } from "@/bolt/app";
+import { registerMessageListener } from "@/bolt/listeners/message";
+import { inngest } from "@/inngest/client";
+import { acknowledgeMessage } from "@/inngest/functions/index";
 
 // Must delete before Agent SDK query() — SDK detects Claude Code env and changes behavior.
 delete process.env.CLAUDECODE;

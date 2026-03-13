@@ -1,1 +1,1 @@
-export { acknowledgeMessage } from "./acknowledge-message.ts";
+export { acknowledgeMessage } from "@/inngest/functions/acknowledge-message";

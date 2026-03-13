@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isUserAllowed, resolveWorkspace } from "./channels";
+import { isUserAllowed, resolveWorkspace } from "@/lib/channels";
 
 describe("isUserAllowed", () => {
   test("denies unlisted user", async () => {

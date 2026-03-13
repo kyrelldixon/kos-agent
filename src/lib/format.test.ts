@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { markdownToSlackMrkdwn, splitMessage } from "./format";
+import { markdownToSlackMrkdwn, splitMessage } from "@/lib/format";
 
 describe("markdownToSlackMrkdwn", () => {
   test("converts headings to bold", () => {

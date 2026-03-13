@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { getSession, saveSession } from "./sessions";
+import { getSession, saveSession } from "@/lib/sessions";
 
 const TEST_KEY = "test-session-unit";
 const SESSIONS_DIR = "data/sessions";

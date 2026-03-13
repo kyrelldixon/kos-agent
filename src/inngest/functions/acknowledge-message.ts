@@ -1,5 +1,5 @@
-import { slack } from "../../lib/slack.ts";
-import { agentMessageReceived, inngest } from "../client.ts";
+import { agentMessageReceived, inngest } from "@/inngest/client";
+import { slack } from "@/lib/slack";
 
 export const acknowledgeMessage = inngest.createFunction(
   {
