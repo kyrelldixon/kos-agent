@@ -11,7 +11,7 @@ default:
 
 # Start Inngest dev server (dashboard at :8288)
 inngest:
-    bunx inngest-cli@latest dev -u http://localhost:9080/api/inngest --no-discovery
+    inngest dev -u http://localhost:9080/api/inngest --no-discovery
 
 # Start the Bun app (Bolt Socket Mode + Hono :9080)
 dev:
