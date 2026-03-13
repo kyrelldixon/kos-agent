@@ -6,14 +6,15 @@ import { inngest } from "@/inngest/client";
 import {
   acknowledgeMessage,
   handleFailure,
+  handleMessage,
   sendReply,
 } from "@/inngest/functions/index";
 
 // Must delete before Agent SDK query() — SDK detects Claude Code env and changes behavior.
 delete process.env.CLAUDECODE;
 
-// Inngest functions — added as implemented (Tasks 5-9)
-const functions = [acknowledgeMessage, handleFailure, sendReply];
+// All Inngest functions registered
+const functions = [acknowledgeMessage, handleFailure, handleMessage, sendReply];
 
 const hono = new Hono();
 hono.on(
