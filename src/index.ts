@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { serve } from "inngest/hono";
 import { createBoltApp } from "@/bolt/app";
-import { registerMessageListeners } from "@/bolt/listeners/message";
+import { registerListeners } from "@/bolt/listeners/index";
 import { inngest } from "@/inngest/client";
 import {
   acknowledgeMessage,
@@ -27,7 +27,7 @@ hono.get("/health", (c) => c.json({ status: "ok" }));
 Bun.serve({ port: 9080, fetch: hono.fetch.bind(hono) });
 
 const bolt = createBoltApp();
-registerMessageListeners(bolt, inngest);
+registerListeners(bolt, inngest);
 await bolt.start();
 
 console.log("Agent system running — Hono :9080, Bolt Socket Mode, Inngest");
