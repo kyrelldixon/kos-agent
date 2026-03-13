@@ -116,7 +116,6 @@ const stream = query({
   options: {
     ...(sessionId ? { resume: sessionId } : {}),
     allowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebFetch", "WebSearch"],
-    mcpServers: { "agent-tools": agentToolsServer }, // in-process workflow tools
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
     cwd: process.env.VAULT_PATH,
@@ -154,72 +153,25 @@ for await (const message of stream) {
 
 - **Agent SDK** = conversational brain (Slack message in, reply out)
 - **Restate** = durable execution engine (multi-step workflows that must not re-run completed steps)
-- **Bridge** = in-process tools + CLI, both calling Restate HTTP ingress
+- **Bridge** = `agent-system` CLI, called by agent via Bash tool or by humans directly. POSTs to Restate HTTP ingress.
 
 ### Durable execution guarantee
 
 Each `ctx.run("step-name", fn)` in a Restate workflow is journaled. On failure or retry, completed steps replay from journal — the function is never re-executed. The agent gets a workflow ID and can check status.
 
-### Two ways to trigger workflows
+### How workflows are triggered
 
-**1. In-process tools** — Agent SDK's `tool()` with Zod schemas, served via `createSdkMcpServer`. Available during agent sessions. Typed inputs, clean interface.
+**CLI only.** The `agent-system` binary (citty + Bun) is the single interface for triggering workflows — used by humans, scripts, and the agent via the Bash tool. Each command POSTs to the Restate HTTP ingress under the hood.
 
-```typescript
-// src/agent/tools.ts
-import { tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import { z } from "zod";
-
-const RESTATE_INGRESS = process.env.RESTATE_INGRESS_URL ?? "http://localhost:8080";
-
-export const captureUrl = tool(
-  "capture_url",
-  "Capture a URL to the vault via durable workflow. Returns workflow ID.",
-  { url: z.string().url() },
-  async ({ url }) => {
-    const res = await fetch(`${RESTATE_INGRESS}/capture/run`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-    });
-    return { content: [{ type: "text", text: await res.text() }] };
-  }
-);
-
-export const workflowStatus = tool(
-  "workflow_status",
-  "Check status of a running Restate workflow",
-  { workflowId: z.string() },
-  async ({ workflowId }) => {
-    const res = await fetch(`${RESTATE_INGRESS}/restate/workflow/${workflowId}/output`);
-    return { content: [{ type: "text", text: await res.text() }] };
-  }
-);
-
-// Bundle tools into an SDK MCP server for query()
-export const agentToolsServer = createSdkMcpServer({
-  name: "agent-tools",
-  tools: [captureUrl, workflowStatus],
-});
-```
-
-Tools are wired into `query()` via `mcpServers`:
-
-```typescript
-const stream = query({
-  prompt: text,
-  options: {
-    mcpServers: { "agent-tools": agentToolsServer },
-    // ...other options
-  },
-});
-```
-
-**2. CLI** — `agent-system` binary (citty + Bun). Usable from terminal, scripts, or the agent via Bash tool. Same HTTP calls under the hood.
+This follows the joelclaw pattern: the agent has a well-documented CLI it calls via Bash, not in-process MCP tools. CLIs are self-documenting (`--help`), testable independently, and work the same way whether invoked by a human or an agent.
 
 ```bash
-agent-system capture https://example.com
-agent-system status <workflow-id>
+agent-system capture https://example.com    # trigger capture workflow
+agent-system status <workflow-id>           # check workflow status
+agent-system workflows                     # list available workflows
 ```
+
+The agent discovers available commands via `agent-system --help` or from the system prompt (which documents available CLI tools). This is the same pattern used for `linear`, `obsidian`, and `tmx` in kos-kit.
 
 ### Restate handler structure
 
@@ -285,8 +237,6 @@ agent-system/
     agent/
       session.ts                    # query() wrapper, streams to Slack
       session.test.ts
-      tools.ts                      # In-process tool defs (capture_url, etc.)
-      tools.test.ts
       skills.ts                     # Skill loader from filesystem markdown
       skills.test.ts
     restate/
@@ -366,4 +316,4 @@ Utah's `ChannelHandler` interface is the right pattern for adding Telegram/web d
 | Separate Restate server in `src/restate/server.ts` | Merge into `src/index.ts` as Hono route |
 | Echo bot in `src/bolt/listeners/message.ts` | Replace with Agent SDK session + Slack streaming |
 | No CLI | Add `cli/` with citty, register in `package.json` bin |
-| No agent tools | Add `src/agent/tools.ts` with in-process tool definitions |
+| No CLI | Add `cli/` with citty commands that POST to Restate ingress |
