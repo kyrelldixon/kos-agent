@@ -1,23 +1,35 @@
 # Agent System Unified Architecture Design
 
-**Date:** 03-12-2026
+**Date:** 03-12-2026 (updated 03-13-2026)
 **Linear:** KYR-117
 **Status:** Draft
 
 ## Problem
 
-The agent system has three runtime concerns — Slack (Bolt Socket Mode), durable workflows (Restate), and conversational AI (Claude Agent SDK) — running on deprecated APIs (`restate.endpoint()`) with no clear integration pattern between them. The plan's Tasks 4-6 need rearchitecting before continuing.
+The agent system needs a clean integration between Slack (Bolt Socket Mode), conversational AI (Claude Agent SDK), and durable workflow execution. The previous spec used Restate for durability, but Inngest is a better fit — better dashboard, better DX, event-driven model that matches how the system naturally works, and it's the engine the cohort/consulting clients will use.
 
 ## Decision
 
-**Approach A: Unified Process.** One Bun process runs Hono (serving Restate fetch handler on port 9080) and Bolt (Socket Mode WebSocket) side by side. Claude Agent SDK is a library call from Bolt listeners. A separate CLI binary provides human/script access to the same workflows.
+**Event-driven unified process.** One Bun process runs Bolt (Socket Mode WebSocket) as a thin event relay and Hono (serving the Inngest function endpoint + health checks). All logic lives in Inngest functions. Claude Agent SDK is a library call from Inngest functions.
 
 ### Why this approach
 
-- Simplest to develop and operate (two terminals: `restate-server` + `bun dev`)
-- No inter-process communication overhead
-- Single-user system — concurrent message blocking is manageable (ack immediately, stream response)
-- Easy to split later if needed (move `src/restate/` to its own entry point)
+- **Bolt is a thin relay** — receives Slack events, emits Inngest events, returns. No logic in listeners.
+- **Inngest handles all orchestration** — session singleton, durable steps, retries, fan-out. The conversational flow IS the first workflow.
+- **Dashboard from day 1** — every message → agent run → reply is visible in the Inngest dashboard.
+- **Workflows are just more functions** — when `capture`, `research`, etc. arrive, they're Inngest functions in the same system.
+- **Multi-channel ready** — any new channel (Telegram, Discord, WhatsApp, iMessage) just emits `agent.message.received`. The Inngest functions don't change.
+- **Supports both webhooks and WebSockets** — Bolt uses Socket Mode (WS), future channels can use either. Hono handles webhook receivers. All normalize to Inngest events.
+
+### Why Inngest over Restate
+
+- **Dashboard** — Inngest's dashboard is what cohort clients and consulting teams will interact with to see workflows executing. Restate's UI is more infrastructure-focused.
+- **DX** — Community consensus (GTM engineering) is Inngest wins on developer experience.
+- **Local dev server** — `inngest-cli dev` runs locally, same as joelclaw's setup.
+- **Event-driven model** — natural fit for message-based systems. Bolt emits events, Inngest consumes them.
+- **Maturity** — more mature product for the workflow use cases we're building toward.
+- **Teaching** — teams coming from n8n/Inngest world will be familiar. Restate is more niche.
+- **Future: React Flow visualization** — can build custom workflow visualization layer on top.
 
 ## Architecture
 
@@ -26,115 +38,272 @@ The agent system has three runtime concerns — Slack (Bolt Socket Mode), durabl
                      │  Bun Process (src/index.ts)              │
                      │                                          │
                      │  ┌──────────┐  ┌──────────────────────┐  │
-                     │  │  Bolt    │  │  Hono :9080           │  │
-  Slack ◄──ws──────► │  │  Socket  │  │  ├─ /restate/* →      │  │
-                     │  │  Mode    │  │  │  fetch handler      │  │
+  Slack ◄──ws──────► │  │  Bolt    │  │  Hono :9080           │  │
+                     │  │  Socket  │  │  ├─ /api/inngest →    │  │
+                     │  │  Mode    │  │  │  serve handler      │  │
+                     │  │  (thin   │  │  ├─ /webhooks/* →     │  │
+                     │  │  relay)  │  │  │  future channels    │  │
                      │  └────┬─────┘  │  └─ GET /health       │  │
                      │       │        └──────────────────────┘  │
-                     │       ▼                    ▲              │
-                     │  ┌──────────┐              │              │
-                     │  │ Agent SDK│   Restate server calls     │
-                     │  │ query()  │   into fetch handler       │
-                     │  └──────────┘              │              │
+                     │       │                    ▲              │
+                     │       ▼                    │              │
+                     │  inngest.send()   Inngest dev server     │
+                     │  "agent.message   calls functions via    │
+                     │   .received"      HTTP                   │
                      └────────────────────────────┼─────────────┘
                                                   │
-                     ┌──────────────┐    ┌────────┴───────┐
-                     │ agent-system │───►│ restate-server  │
-                     │ CLI (citty)  │    │ :8080 ingress   │
-                     └──────────────┘    └────────────────┘
+                     ┌────────────────────────────┴─────────────┐
+                     │  Inngest Dev Server :8288                 │
+                     │  ├─ Dashboard (workflow visibility)       │
+                     │  ├─ Event stream                          │
+                     │  ├─ Durable step execution                │
+                     │  └─ Singleton, retries, fan-out           │
+                     └──────────────────────────────────────────┘
 ```
 
 ### Process topology (dev)
 
-1. **Terminal 1:** `just restate` — Restate server binary (ingress :8080, admin :9070)
+1. **Terminal 1:** `just inngest` — Inngest dev server (dashboard :8288)
 2. **Terminal 2:** `just dev` — Bun process (Hono :9080 + Bolt Socket Mode)
-3. **CLI:** `agent-system <command>` — invoked by humans, scripts, or the agent via Bash tool
+
+## Inngest Version
+
+**Target: `inngest@4.x`** (alpha at time of writing). This matches the utah reference project. Key v4 patterns used throughout this spec:
+
+- 2-argument `createFunction` (config with `triggers` + handler)
+- `eventType()` + `staticSchema<T>()` for typed events
+- `singleton` for one-at-a-time execution (not `concurrency`)
+- `serve()` from `inngest/hono` for HTTP-based function serving
+- `checkpointing: true` for near-zero inter-step latency
+
+**Note on `serve()` vs `connect()`:** Utah uses `connect()` (WebSocket to Inngest). This spec uses `serve()` (HTTP endpoint that Inngest dev server calls) because we already have Hono for health checks and future webhook receivers. Both work with the local dev server. Switch to `connect()` if the HTTP endpoint becomes unnecessary.
 
 ## Server Entry Point
 
-`src/index.ts` starts both Hono and Bolt:
+`src/index.ts` starts Hono (with Inngest serve handler) and Bolt:
 
 ```typescript
 import { Hono } from "hono";
-import { createEndpointHandler } from "@restatedev/restate-sdk/fetch";
+import { serve } from "inngest/hono";
+import { inngest } from "./inngest/client";
+import { functions } from "./inngest/functions";
 import { createBoltApp } from "./bolt/app";
 import { registerListeners } from "./bolt/listeners";
-import { services } from "./restate";
 
-// Must delete before Agent SDK query() — prevents SDK from detecting Claude Code env
+// Must delete before Agent SDK query() — SDK detects Claude Code env and changes behavior.
+// Without this, query() may hang or behave unexpectedly.
 delete process.env.CLAUDECODE;
 
 const hono = new Hono();
 
-// Restate fetch handler — replaces deprecated endpoint().listen()
-// Note: bidirectional requires HTTP/2. Bun.serve does not support HTTP/2,
-// so this falls back to request-response mode. Validate early — if it fails,
-// set bidirectional: false (fine for this use case).
-const restateHandler = createEndpointHandler({
-  services,
-  bidirectional: true,
-});
-
-// Mount at root — Restate calls /ServiceName/handlerName directly.
-// Registration URL must match: `restate deployments register http://localhost:9080`
+// Inngest serve handler — Inngest dev server calls functions via HTTP
+hono.on(["GET", "POST", "PUT"], "/api/inngest", serve({ client: inngest, functions }));
 hono.get("/health", (c) => c.json({ status: "ok" }));
-hono.all("/*", (c) => restateHandler(c.req.raw));
 
 Bun.serve({ port: 9080, fetch: hono.fetch.bind(hono) });
 
 const bolt = createBoltApp();
-registerListeners(bolt);
+registerListeners(bolt, inngest);
 await bolt.start();
 
-console.log("Agent system running — Hono :9080, Bolt Socket Mode");
+console.log("Agent system running — Hono :9080, Bolt Socket Mode, Inngest");
 ```
 
-## Slack to Agent SDK Flow
+## Slack → Inngest Event Flow
 
-### Message lifecycle
+### Bolt as thin relay
 
-1. Slack event arrives via Bolt Socket Mode (WebSocket)
-2. Bolt listener acks immediately (within 3s)
-3. Adds reaction (brain emoji) to show agent is thinking
-4. Calls `query()` with message text and `includePartialMessages: true`
-5. Streams response to Slack via streaming APIs (`chat.startStream` / `chat.appendStream` / `chat.stopStream`)
-6. On error, posts error message to thread
-
-### Session management
-
-Thread-scoped sessions — each Slack thread maps to one Agent SDK session. Session IDs stored in `Map<threadTs, sessionId>` for multi-turn context via `resume`.
+Bolt listeners do one thing: normalize the Slack event and emit an Inngest event.
 
 ```typescript
-const sessions = new Map<string, string>(); // threadTs → sessionId
+// src/bolt/listeners/message.ts
+import type { App } from "@slack/bolt";
+import type { Inngest } from "inngest";
 
-// On message:
-const threadTs = event.thread_ts ?? event.ts;
-const sessionId = sessions.get(threadTs);
+export function registerMessageListeners(app: App, inngest: Inngest) {
+  app.message(async ({ event }) => {
+    // Filter bot messages to prevent infinite loops
+    if ("bot_id" in event || "subtype" in event) return;
 
-const stream = query({
-  prompt: text,
-  options: {
-    ...(sessionId ? { resume: sessionId } : {}),
-    allowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebFetch", "WebSearch"],
-    permissionMode: "bypassPermissions",
-    allowDangerouslySkipPermissions: true,
-    cwd: process.env.VAULT_PATH,
-    systemPrompt: {
-      type: "preset",
-      preset: "claude_code",
-      append: systemAppend, // skills, vault path, CLI docs, "responding in Slack"
-    },
-    maxTurns: 10,
-    includePartialMessages: true,
-  },
-});
+    const threadTs = event.thread_ts ?? event.ts;
 
-for await (const message of stream) {
-  if (message.type === "system" && message.subtype === "init") {
-    sessions.set(threadTs, message.session_id);
-  }
-  // Stream text deltas to Slack via streaming APIs...
+    await inngest.send({
+      name: "agent.message.received",
+      data: {
+        message: event.text ?? "",
+        sessionKey: `slack-${event.channel}-${threadTs}`,
+        channel: "slack",
+        sender: { id: event.user ?? "unknown" },
+        destination: {
+          chatId: event.channel,
+          threadId: threadTs,
+          messageId: event.ts,
+        },
+      },
+    });
+  });
 }
+```
+
+### Inngest functions handle everything
+
+Three functions trigger on `agent.message.received`:
+
+**1. handleMessage** — runs the Agent SDK session (singleton per thread, cancels stale runs)
+
+```typescript
+// src/inngest/functions/handle-message.ts
+import { inngest, agentMessageReceived } from "../client";
+import { runAgentSession } from "../../agent/session";
+
+export const handleMessage = inngest.createFunction(
+  {
+    id: "handle-message",
+    retries: 0, // Agent SDK calls are expensive — don't auto-retry
+    triggers: [agentMessageReceived],
+    // Singleton: one conversation at a time per thread.
+    // "cancel" mode: if user sends a new message while agent is processing,
+    // cancel the stale run and start fresh with the new message.
+    singleton: { key: "event.data.sessionKey", mode: "cancel" },
+  },
+  async ({ event, step }) => {
+    const { message, sessionKey, channel, destination } = event.data;
+
+    // Resolve existing session for multi-turn
+    const session = await step.run("resolve-session", async () => {
+      return getSession(sessionKey);
+    });
+
+    // If no workspace set, post workspace selector and wait
+    if (!session?.workspace) {
+      await step.run("request-workspace", async () => {
+        if (channel === "slack") {
+          await postWorkspaceSelector(destination.chatId, destination.threadId, sessionKey);
+        }
+      });
+      // Stop here — handleSessionReady will re-trigger after user selects
+      return;
+    }
+
+    // Run Agent SDK — this is the expensive step
+    const result = await step.run("agent-query", async () => {
+      return runAgentSession({
+        message,
+        sessionId: session.sessionId,
+        workspace: session.workspace!,
+      });
+    });
+
+    // Persist session mapping
+    if (result.sessionId) {
+      await step.run("save-session", async () => {
+        saveSession(sessionKey, result.sessionId!);
+      });
+    }
+
+    // Emit reply event
+    await step.sendEvent("send-reply", {
+      name: "agent.reply.ready",
+      data: {
+        response: result.responseText,
+        channel: "slack",
+        destination,
+      },
+    });
+  },
+);
+```
+
+**2. acknowledgeMessage** — adds reaction (parallel, best-effort)
+
+```typescript
+// src/inngest/functions/acknowledge-message.ts
+import { inngest, agentMessageReceived } from "../client";
+
+export const acknowledgeMessage = inngest.createFunction(
+  {
+    id: "acknowledge-message",
+    retries: 0,
+    triggers: [agentMessageReceived],
+  },
+  async ({ event, step }) => {
+    const { channel, destination } = event.data;
+
+    await step.run("acknowledge", async () => {
+      if (channel === "slack") {
+        await addReaction(destination.chatId, destination.messageId, "brain");
+      }
+    });
+  },
+);
+```
+
+**3. sendReply** — posts response to Slack with retries
+
+```typescript
+// src/inngest/functions/send-reply.ts
+import { inngest, agentReplyReady } from "../client";
+
+export const sendReply = inngest.createFunction(
+  {
+    id: "send-reply",
+    retries: 3,
+    triggers: [agentReplyReady],
+  },
+  async ({ event, step }) => {
+    const { response, channel, destination } = event.data;
+
+    await step.run("send", async () => {
+      if (channel === "slack") {
+        await postMessage(destination.chatId, response, {
+          threadTs: destination.threadId,
+        });
+      }
+    });
+
+    // Remove thinking reaction, add checkmark
+    await step.run("update-reaction", async () => {
+      if (channel === "slack") {
+        await removeReaction(destination.chatId, destination.messageId, "brain");
+        await addReaction(destination.chatId, destination.messageId, "white_check_mark");
+      }
+    });
+  },
+);
+```
+
+**4. handleFailure** — notifies user when something goes wrong
+
+```typescript
+// src/inngest/functions/handle-failure.ts
+import { inngest } from "../client";
+
+export const handleFailure = inngest.createFunction(
+  {
+    id: "handle-failure",
+    retries: 0,
+    triggers: [{ event: "inngest/function.failed" }],
+  },
+  async ({ event, step }) => {
+    const originalEvent = event.data.event;
+    if (!originalEvent?.data?.destination) return;
+
+    const { chatId, threadId, messageId } = originalEvent.data.destination;
+    const channel = originalEvent.data.channel;
+    const functionId = event.data.function_id;
+    const error = event.data.error?.message ?? "Unknown error";
+
+    await step.run("notify-user", async () => {
+      if (channel === "slack") {
+        await removeReaction(chatId, messageId, "brain");
+        await addReaction(chatId, messageId, "x");
+        await postMessage(chatId, `Something went wrong (${functionId}): ${error}`, {
+          threadTs: threadId,
+        });
+      }
+    });
+  },
+);
 ```
 
 ### Agent SDK configuration
@@ -142,86 +311,262 @@ for await (const message of stream) {
 | Option | Value | Why |
 |--------|-------|-----|
 | `permissionMode` | `"bypassPermissions"` | Personal system, agent runs autonomously |
-| `allowedTools` | Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch | Bash gives access to `agent-system` CLI, `obsidian`, `linear`, etc. |
-| `cwd` | `$VAULT_PATH` | Default workspace for knowledge work |
+| `allowedTools` | Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch | Bash gives access to `obsidian`, `linear`, etc. CLIs |
+| `cwd` | Per-session (see Workspace Selection) | Resolved at session start via channel default + user selection |
 | `maxTurns` | 10 | Prevent runaway sessions |
-| `includePartialMessages` | `true` | Stream text deltas for Slack streaming |
 
-## Restate Integration
+**No API key required.** The Agent SDK uses the Claude subscription — no `ANTHROPIC_API_KEY` needed.
 
-### Role separation
+## Workspace Selection
 
-- **Agent SDK** = conversational brain (Slack message in, reply out)
-- **Restate** = durable execution engine (multi-step workflows that must not re-run completed steps)
-- **Bridge** = `agent-system` CLI, called by agent via Bash tool or by humans directly. POSTs to Restate HTTP ingress.
+Each session needs a working directory (`cwd`). The system uses a two-layer approach: **channel defaults + per-thread override**.
 
-### Durable execution guarantee
+### Channel defaults
 
-Each `ctx.run("step-name", fn)` in a Restate workflow is journaled. On failure or retry, completed steps replay from journal — the function is never re-executed. The agent gets a workflow ID and can check status.
+Each channel has a default workspace configured in `data/workspaces.json`:
 
-### How workflows are triggered
-
-**CLI only.** The `agent-system` binary (citty + Bun) is the single interface for triggering workflows — used by humans, scripts, and the agent via the Bash tool. Each command POSTs to the Restate HTTP ingress under the hood.
-
-This follows the joelclaw pattern: the agent has a well-documented CLI it calls via Bash, not in-process MCP tools. CLIs are self-documenting (`--help`), testable independently, and work the same way whether invoked by a human or an agent.
-
-```bash
-agent-system capture https://example.com    # trigger capture workflow
-agent-system status <workflow-id>           # check workflow status
-agent-system workflows                     # list available workflows
-```
-
-The agent discovers available commands via `agent-system --help` or from the system prompt (which documents available CLI tools). This is the same pattern used for `linear`, `obsidian`, and `tmx` in kos-kit.
-
-### Restate handler structure
-
-```
-src/restate/
-  index.ts              # Exports all services/workflows for binding
-  services/
-    ping.ts             # Health check (exists)
-  workflows/
-    capture.ts          # URL capture: fetch → summarize → vault note
-  objects/              # Virtual objects (future: job scheduler, rate limiter)
-```
-
-```typescript
-// src/restate/index.ts
-import { pingService } from "./services/ping";
-import { captureWorkflow } from "./workflows/capture";
-
-// Array of service/workflow/object definitions for createEndpointHandler
-export const services = [pingService, captureWorkflow];
-```
-
-### Example workflow
-
-```typescript
-// src/restate/workflows/capture.ts
-import * as restate from "@restatedev/restate-sdk";
-
-export const captureWorkflow = restate.workflow({
-  name: "capture",
-  handlers: {
-    run: async (ctx: restate.WorkflowContext, input: { url: string }) => {
-      const content = await ctx.run("fetch", async () => {
-        const res = await fetch(`https://r.jina.ai/${input.url}`);
-        return res.text();
-      });
-
-      const summary = await ctx.run("summarize", async () => {
-        return summarize(content);
-      });
-
-      await ctx.run("write-vault", async () => {
-        await createVaultNote(input.url, summary);
-      });
-
-      return { url: input.url, status: "captured" };
-    },
+```json
+{
+  "defaults": {
+    "slack-C08XXXXXX": "~/kyrell-os-vault",
+    "slack-C09YYYYYY": "~/projects/agent-system",
+    "telegram-12345": "~/kyrell-os-vault"
   },
+  "workspaces": [
+    { "label": "Vault", "path": "~/kyrell-os-vault" },
+    { "label": "Agent System", "path": "~/projects/agent-system" },
+    { "label": "kos-kit", "path": "~/projects/kos-kit" },
+    { "label": "Custom path...", "path": null }
+  ]
+}
+```
+
+### First message in a new thread
+
+When a user sends the first message in a thread (no existing session), instead of immediately running the agent, the system posts a workspace selection prompt using Slack's `static_select` Block Kit element:
+
+```typescript
+// Slack Block Kit message with workspace selector
+{
+  blocks: [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: "Where should I work?" },
+      accessory: {
+        type: "static_select",
+        action_id: "workspace_select",
+        placeholder: { type: "plain_text", text: "Select workspace" },
+        initial_option: {
+          text: { type: "plain_text", text: "Vault" },
+          value: "~/kyrell-os-vault",
+        },
+        options: workspaces.map((ws) => ({
+          text: { type: "plain_text", text: ws.label },
+          value: ws.path ?? "custom",
+        })),
+      },
+    },
+  ],
+}
+```
+
+**Flow:**
+1. First message in thread → post workspace selector (with channel default pre-selected)
+2. User picks from dropdown (or selects "Custom path..." for a modal with text input)
+3. On selection → save workspace to session, then run the agent with the original message
+4. Subsequent messages in the same thread reuse the session's workspace
+
+**Shortcut:** If the user wants to skip the selector, they can prefix their message with a path: `~/projects/foo what files are here?` — the system detects the path prefix and uses it directly.
+
+### Bolt action handler for workspace selection
+
+```typescript
+// src/bolt/listeners/actions.ts
+app.action("workspace_select", async ({ ack, body, action }) => {
+  await ack();
+  const selectedPath = action.selected_option.value;
+  const threadTs = body.message.thread_ts ?? body.message.ts;
+  const sessionKey = `slack-${body.channel.id}-${threadTs}`;
+
+  if (selectedPath === "custom") {
+    // Open modal with text input for custom path
+    await app.client.views.open({
+      trigger_id: body.trigger_id,
+      view: buildCustomPathModal(sessionKey, threadTs),
+    });
+    return;
+  }
+
+  // Save workspace and run the queued message
+  await saveSessionWorkspace(sessionKey, selectedPath);
+  await inngest.send({
+    name: "agent.session.ready",
+    data: { sessionKey, workspace: selectedPath },
+  });
 });
 ```
+
+### Event flow with workspace selection
+
+```
+agent.message.received
+  → handleMessage checks: does session have a workspace?
+    → YES: run agent with that cwd
+    → NO (first message): post workspace selector, queue the message
+        → User selects workspace
+        → agent.session.ready event fires
+        → handleSessionReady: save workspace, re-emit agent.message.received with workspace resolved
+```
+
+## Session Management
+
+Thread-scoped sessions — each Slack thread maps to one Agent SDK session ID + workspace path. Session data is persisted to enable multi-turn context via `resume`.
+
+**Storage:** Per-session files in `data/sessions/` for simplicity. Each session key gets its own file, avoiding race conditions when multiple threads are active. Survives process restarts (unlike in-memory Map). Can move to SQLite later if needed.
+
+```typescript
+// src/lib/sessions.ts
+import { join } from "path";
+
+const SESSIONS_DIR = "data/sessions";
+
+interface SessionData {
+  sessionId?: string;
+  workspace?: string;
+  updatedAt: string;
+}
+
+export async function getSession(sessionKey: string): Promise<SessionData | undefined> {
+  const file = Bun.file(join(SESSIONS_DIR, `${sessionKey}.json`));
+  if (!(await file.exists())) return undefined;
+  return file.json();
+}
+
+export async function saveSession(
+  sessionKey: string,
+  data: Partial<SessionData>,
+): Promise<void> {
+  const existing = (await getSession(sessionKey)) ?? {};
+  await Bun.write(
+    join(SESSIONS_DIR, `${sessionKey}.json`),
+    JSON.stringify({ ...existing, ...data, updatedAt: new Date().toISOString() }),
+  );
+}
+
+export async function saveSessionWorkspace(
+  sessionKey: string,
+  workspace: string,
+): Promise<void> {
+  await saveSession(sessionKey, { workspace });
+}
+```
+
+## Inngest Client & Event Types
+
+```typescript
+// src/inngest/client.ts
+import { Inngest, eventType, staticSchema } from "inngest";
+
+export const inngest = new Inngest({
+  id: "agent-system",
+  checkpointing: true, // Near-zero inter-step latency
+});
+
+// Normalized types — channel-agnostic field names for multi-channel readiness
+export type Destination = {
+  chatId: string;     // Slack: channel ID. Telegram: chat ID. Discord: channel ID.
+  threadId: string;   // Slack: thread_ts. Telegram: message_thread_id.
+  messageId: string;  // Slack: ts. Telegram: message_id.
+};
+
+export type AgentMessageData = {
+  message: string;
+  sessionKey: string;
+  channel: string;
+  sender: { id: string; name?: string };
+  destination: Destination;
+};
+
+export type AgentReplyData = {
+  response: string;
+  channel: string;
+  destination: Destination;
+};
+
+// Typed event definitions — gives type safety at Inngest boundary
+export const agentMessageReceived = eventType("agent.message.received", {
+  schema: staticSchema<AgentMessageData>(),
+});
+
+export const agentReplyReady = eventType("agent.reply.ready", {
+  schema: staticSchema<AgentReplyData>(),
+});
+```
+
+## Agent Session Wrapper
+
+`agent/session.ts` wraps the Agent SDK `query()` call, isolating SDK consumption from Inngest function logic:
+
+```typescript
+// src/agent/session.ts
+import { query } from "@anthropic-ai/claude-agent-sdk";
+
+interface SessionInput {
+  message: string;
+  sessionId?: string;
+  workspace: string; // Resolved working directory for this session
+}
+
+interface SessionResult {
+  sessionId?: string;
+  responseText: string;
+}
+
+export async function runAgentSession(input: SessionInput): Promise<SessionResult> {
+  let newSessionId: string | undefined;
+  let responseText = "";
+
+  const stream = query({
+    prompt: input.message,
+    options: {
+      ...(input.sessionId ? { resume: input.sessionId } : {}),
+      allowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebFetch", "WebSearch"],
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
+      cwd: input.workspace, // Per-session, resolved via workspace selection
+      systemPrompt: {
+        type: "preset",
+        preset: "claude_code",
+        append: buildSystemAppend(),
+      },
+      maxTurns: 10,
+    },
+  });
+
+  for await (const msg of stream) {
+    if (msg.type === "system" && msg.subtype === "init") {
+      newSessionId = msg.session_id;
+    }
+    if (msg.type === "result") {
+      responseText = extractText(msg);
+    }
+  }
+
+  return { sessionId: newSessionId, responseText };
+}
+```
+
+## Environment Variables
+
+Required in `.env.schema`:
+
+| Variable | Required | Source | Notes |
+|----------|----------|-------|-------|
+| `SLACK_BOT_TOKEN` | Yes | 1Password | `xoxb-` token for posting messages |
+| `SLACK_APP_TOKEN` | Yes | 1Password | `xapp-` token for Socket Mode |
+| `SLACK_SIGNING_SECRET` | No | 1Password | Not needed for Socket Mode, optional |
+
+**No `ANTHROPIC_API_KEY` needed.** The Agent SDK uses the Claude subscription directly.
 
 ## File Structure
 
@@ -232,32 +577,34 @@ agent-system/
     bolt/
       app.ts                        # Bolt factory (Socket Mode config)
       listeners/
-        message.ts                  # DM + mention handlers → agent session
+        index.ts                    # Register all listeners
+        message.ts                  # DM + mention → inngest.send()
         message.test.ts
+        actions.ts                  # Workspace select + custom path modal
+        actions.test.ts
+    inngest/
+      client.ts                     # Inngest client + event types
+      functions/
+        index.ts                    # Export all functions
+        handle-message.ts           # Singleton agent session per thread
+        handle-message.test.ts
+        handle-session-ready.ts     # Workspace selected → run queued message
+        acknowledge-message.ts      # Reaction indicator (best-effort)
+        send-reply.ts               # Post reply to channel with retries
+        send-reply.test.ts
+        handle-failure.ts           # Global error handler → notify user
     agent/
-      session.ts                    # query() wrapper, streams to Slack
+      session.ts                    # Agent SDK query() wrapper
       session.test.ts
-      skills.ts                     # Skill loader from filesystem markdown
-      skills.test.ts
-    restate/
-      index.ts                      # Exports all services for binding
-      services/
-        ping.ts                     # Health check service
-        ping.test.ts
-      workflows/
-        capture.ts                  # URL capture workflow
-        capture.test.ts
-      objects/                      # Virtual objects (future)
     lib/
-      obsidian.ts                   # Obsidian CLI wrapper
-      slack.ts                      # Slack streaming helpers
+      sessions.ts                   # Per-session file persistence (session ID + workspace)
+      workspaces.ts                 # Workspace config loader + defaults
+      slack.ts                      # Slack API helpers (postMessage, reactions)
       slack.test.ts
-  cli/
-    index.ts                        # citty entry point
-    commands/
-      capture.ts                    # agent-system capture <url>
-      status.ts                     # agent-system status <id>
-  package.json                      # bin: { "agent-system": "cli/index.ts" }
+  data/
+    sessions/                       # Per-session JSON files (gitignored)
+    workspaces.json                 # Channel defaults + workspace list
+  package.json
   justfile
   .env.schema
   tsconfig.json
@@ -271,49 +618,83 @@ Tests are co-located with source files.
 
 | Project | Path | What to port |
 |---------|------|-------------|
-| **claude-code-slack-bot** | `~/projects/claude-code-slack-bot` | Streaming response pattern, Slack formatting, session-per-thread |
-| **agent-platform** | `~/projects/agent-platform` | `query()` async iterable consumption, `delete process.env.CLAUDECODE` gotcha |
-| **utah** | `~/projects/utah` | Channel abstraction, singleton concurrency, Slack mrkdwn conversion |
-| **joelclaw** | `~/projects/joelclaw` | Restate DAG orchestrator, tool-wraps-CLI pattern, video pipeline |
+| **utah** | `~/projects/utah` | Channel abstraction pattern, Inngest event-driven architecture, singleton per session, Slack mrkdwn conversion |
+| **claude-code-slack-bot** | `~/projects/claude-code-slack-bot` | Agent SDK `query()` async iterable consumption, session-per-thread, reaction status indicators, `delete process.env.CLAUDECODE` gotcha |
+| **joelclaw** | `~/projects/joelclaw` | Inngest function patterns, CLI tool pattern, event naming conventions |
+
+### What to port now
+
+- Utah's Inngest event-driven model (Bolt thin relay → Inngest functions)
+- Utah's channel handler interface (simplified — just Slack for now)
+- claude-code-slack-bot's Agent SDK consumption pattern
+- claude-code-slack-bot's reaction-based status indicators
 
 ### What NOT to port yet
 
-- Utah's Inngest integration (we use Restate)
+- Utah's full channel abstraction (Telegram, Discord — Slack only for MVP)
+- Utah's Inngest webhook transforms (we use Bolt Socket Mode, not webhooks)
+- Joelclaw's DAG orchestrator (no complex workflows yet)
 - Joelclaw's multi-channel gateway (Slack-only for now)
-- Joelclaw's pi-coding-agent extension system (Agent SDK replaces this)
-- Utah's two-tier memory system (Agent SDK handles context)
+- claude-code-slack-bot's Slack streaming APIs (append-only messages are simpler)
+- claude-code-slack-bot's permission MCP server (using bypassPermissions)
 
-### Future: Channel abstraction
+### Future: Multi-channel
 
-Utah's `ChannelHandler` interface is the right pattern for adding Telegram/web dashboard later. The design keeps Slack-specific I/O in `src/bolt/` — `session.ts` takes a prompt, returns text. This boundary makes adding channels straightforward.
+When adding Telegram, Discord, WhatsApp, iMessage:
+1. Webhook-based channels: add Hono route → normalize → `inngest.send("agent.message.received")`
+2. WebSocket-based channels: add WS connection in entry point → normalize → `inngest.send("agent.message.received")`
+3. Implement channel handler (sendReply, acknowledge)
+4. Register in channel map
+
+The Inngest functions (handleMessage, sendReply, acknowledgeMessage) don't change — they dispatch via the `channel` field.
+
+### Future: Workflows
+
+When adding durable workflows (capture, research, enrichment):
+1. Add Inngest function in `src/inngest/functions/`
+2. Trigger via event (`inngest.send("capture/requested", { url })`)
+3. Agent can trigger workflows via CLI → `inngest.send()` under the hood
+4. Dashboard shows workflow execution alongside conversational flows
+5. Optional: React Flow visualization layer on top
+
+### Future: CLI
+
+When the system has workflows worth triggering outside Slack:
+1. Add `cli/` with citty
+2. CLI commands send Inngest events (same as Bolt relay)
+3. `agent-system capture <url>` → `inngest.send("capture/requested", { url })`
+4. `agent-system status` → query Inngest API for function run status
 
 ## Dependencies
 
 ### Existing (keep)
 - `@slack/bolt` — Slack Socket Mode
-- `@restatedev/restate-sdk` — Restate service handlers
 - `@anthropic-ai/claude-agent-sdk` — Agent sessions
-- `zod` — Schema validation (tools, inputs)
+- `zod` — Schema validation
 - `varlock` + `@varlock/1password-plugin` — Env management
 
 ### New (add)
-- `hono` — HTTP framework for Restate fetch handler
-- `citty` — CLI argument parsing for `agent-system` binary
+- `inngest` — Event-driven durable execution
+- `hono` — HTTP framework for Inngest serve handler + health checks
 
-## Known Limitations
-
-- **Session map is in-memory.** On process restart (including `bun --watch`), all thread→session mappings are lost. Acceptable for MVP — sessions can be persisted to a file or SQLite later if needed.
-- **Bidirectional mode requires HTTP/2.** `Bun.serve` does not support HTTP/2. If `bidirectional: true` fails, fall back to `false` (request-response mode). Validate this early.
-- **Slack streaming APIs are new.** `chat.startStream` / `chat.appendStream` / `chat.stopStream` — reference `~/projects/claude-code-slack-bot` for a working implementation. Fall back to edit-in-place (`chat.update`) if streaming is unavailable.
-- **`signingSecret` unnecessary for Socket Mode.** Can be removed from Bolt config and downgraded to optional in `.env.schema`. Socket Mode authenticates via app token over WebSocket.
-- **`ANTHROPIC_API_KEY` must be available.** Either add to `.env.schema` with varlock or ensure it's set in shell profile. The Agent SDK requires it.
+### Remove
+- `@restatedev/restate-sdk` — Replaced by Inngest
 
 ## Migration from Current Code
 
 | Current | Change |
 |---------|--------|
-| `restate.endpoint().listen()` | Replace with `createEndpointHandler` from `@restatedev/restate-sdk/fetch` mounted on Hono |
-| Separate Restate server in `src/restate/server.ts` | Merge into `src/index.ts` as Hono route |
-| Echo bot in `src/bolt/listeners/message.ts` | Replace with Agent SDK session + Slack streaming |
-| No CLI | Add `cli/` with citty, register in `package.json` bin |
-| No CLI | Add `cli/` with citty commands that POST to Restate ingress |
+| `restate.endpoint().listen()` in `src/restate/server.ts` | Remove entirely — Inngest replaces Restate |
+| Separate Restate server process | Replace with Inngest dev server (`inngest-cli dev`) |
+| Echo bot in `src/bolt/listeners/message.ts` | Replace with thin relay → `inngest.send()` |
+| Restate ping service in `src/restate/services/ping.ts` | Remove — use `/health` endpoint instead |
+| No Inngest | Add Inngest client, serve handler, event types, functions |
+| In-memory session map | Per-session files in `data/sessions/` |
+
+## Known Limitations
+
+- **Per-session files have no TTL.** Old session files accumulate. Acceptable for MVP — add cleanup cron or TTL-based eviction later.
+- **No streaming to Slack.** Agent completes full response, then posts as a single message. Acceptable for MVP — can add edit-in-place (`chat.update`) or streaming APIs later.
+- **Inngest step timeout.** Agent SDK `query()` with `maxTurns: 10` could run for minutes. Inngest step timeout defaults may need increasing for the `agent-query` step. Validate early.
+- **Singleton cancel mode drops messages.** If user sends a message while agent is processing, the in-progress run is cancelled. The new message starts a fresh run, but the old message's context is lost. Acceptable for personal use — the user knows they interrupted.
+- **`signingSecret` unnecessary for Socket Mode.** Downgraded to optional in `.env.schema`.
