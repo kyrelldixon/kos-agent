@@ -1,48 +1,38 @@
 # Agent System task runner
 #
 # Dev workflow:
-#   Terminal 1: just restate
+#   Terminal 1: just inngest
 #   Terminal 2: just dev
-#   Once both up: just register (one-time per restate restart)
-#   Test:        just ping
-
-restate-port := "9080"
-restate-ingress := "8080"
-restate-ui := "9070"
-restate-data := env("HOME") / ".restate/agent-system"
+#   Test:        just test
 
 # List available recipes
 default:
     @just --list
 
-# Start Restate server
-restate:
-    mkdir -p {{restate-data}}
-    restate-server --base-dir={{restate-data}}
+# Start Inngest dev server (dashboard at :8288)
+inngest:
+    bunx inngest-cli@latest dev -u http://localhost:9080/api/inngest --no-discovery
 
-# Start the Bun app (Bolt + Restate handlers)
+# Start the Bun app (Bolt Socket Mode + Hono :9080)
 dev:
-    bunx varlock run -- bun --watch src/index.ts
+    INNGEST_DEV=1 bunx varlock run -- bun --watch src/index.ts
 
-# Register service handlers with Restate (one-time per restate restart)
-register:
-    restate deployments register http://localhost:{{restate-port}}
-
-# Test the ping service
-ping message="hello":
-    curl -s -X POST http://localhost:{{restate-ingress}}/ping/ping \
-      -H 'Content-Type: application/json' \
-      -d '{"message": "{{message}}"}'
-
-# Open Restate dashboard
-dashboard:
-    open http://localhost:{{restate-ui}}
-
-# Wipe all Restate state
-reset:
-    rm -rf {{restate-data}}
-    @echo "Restate state wiped. Restart with: just restate"
+# Run tests
+test *args:
+    bun test {{args}}
 
 # Typecheck
 check:
     bunx tsc --noEmit
+
+# Lint + format
+lint:
+    bunx biome check .
+
+# Open Inngest dashboard
+dashboard:
+    open http://localhost:8288
+
+# Health check
+health:
+    curl -s http://localhost:9080/health | jq

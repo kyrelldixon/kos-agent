@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "bunx varlock run -- bun --watch src/index.ts",
+    "dev": "INNGEST_DEV=1 bunx varlock run -- bun --watch src/index.ts",
     "test": "bun test",
     "lint": "bunx biome check .",
     "format": "bunx biome format --write ."
