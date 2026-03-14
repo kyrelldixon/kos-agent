@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { markdownToSlackMrkdwn, splitMessage } from "@/lib/format";
+import {
+  formatToolUse,
+  markdownToSlackMrkdwn,
+  splitMessage,
+} from "@/lib/format";
 
 describe("markdownToSlackMrkdwn", () => {
   test("converts headings to bold", () => {
@@ -62,5 +66,71 @@ describe("splitMessage", () => {
     for (const chunk of chunks) {
       expect(chunk.length).toBeLessThanOrEqual(10);
     }
+  });
+});
+
+describe("formatToolUse", () => {
+  test("formats Bash with command preview", () => {
+    expect(formatToolUse("Bash", { command: "git status" })).toBe(
+      "🔧 Bash: `git status`",
+    );
+  });
+
+  test("truncates long Bash commands at 80 chars", () => {
+    const longCmd = "a".repeat(100);
+    const result = formatToolUse("Bash", { command: longCmd });
+    expect(result).toBe(`🔧 Bash: \`${"a".repeat(77)}...\``);
+  });
+
+  test("formats Read with file path", () => {
+    expect(formatToolUse("Read", { file_path: "src/index.ts" })).toBe(
+      "📄 Read: src/index.ts",
+    );
+  });
+
+  test("formats Write with file path", () => {
+    expect(formatToolUse("Write", { file_path: "src/lib/format.ts" })).toBe(
+      "📝 Write: src/lib/format.ts",
+    );
+  });
+
+  test("formats Edit with file path", () => {
+    expect(formatToolUse("Edit", { file_path: "src/bolt/app.ts" })).toBe(
+      "✏️ Edit: src/bolt/app.ts",
+    );
+  });
+
+  test("formats Glob with pattern", () => {
+    expect(formatToolUse("Glob", { pattern: "src/**/*.ts" })).toBe(
+      "🔍 Glob: src/**/*.ts",
+    );
+  });
+
+  test("formats Grep with pattern", () => {
+    expect(formatToolUse("Grep", { pattern: "handleMessage" })).toBe(
+      '🔍 Grep: "handleMessage"',
+    );
+  });
+
+  test("formats WebFetch with url", () => {
+    expect(formatToolUse("WebFetch", { url: "https://example.com" })).toBe(
+      "🌐 Fetch: https://example.com",
+    );
+  });
+
+  test("truncates long URLs at 60 chars", () => {
+    const longUrl = "https://example.com/" + "a".repeat(60);
+    const result = formatToolUse("WebFetch", { url: longUrl });
+    expect(result.length).toBeLessThanOrEqual(70);
+  });
+
+  test("formats WebSearch with query", () => {
+    expect(
+      formatToolUse("WebSearch", { query: "inngest error handling" }),
+    ).toBe('🌐 Search: "inngest error handling"');
+  });
+
+  test("formats unknown tools with just the name", () => {
+    expect(formatToolUse("TodoWrite", { tasks: [] })).toBe("🔧 TodoWrite");
   });
 });

@@ -80,6 +80,37 @@ export function markdownToSlackMrkdwn(text: string): string {
   return result;
 }
 
+function truncate(str: string, max: number): string {
+  return str.length > max ? `${str.slice(0, max - 3)}...` : str;
+}
+
+/** Format a tool use into a one-line Slack message. */
+export function formatToolUse(
+  name: string,
+  input: Record<string, unknown>,
+): string {
+  switch (name) {
+    case "Bash":
+      return `🔧 Bash: \`${truncate(String(input.command ?? ""), 80)}\``;
+    case "Read":
+      return `📄 Read: ${truncate(String(input.file_path ?? ""), 100)}`;
+    case "Write":
+      return `📝 Write: ${truncate(String(input.file_path ?? ""), 100)}`;
+    case "Edit":
+      return `✏️ Edit: ${truncate(String(input.file_path ?? ""), 100)}`;
+    case "Glob":
+      return `🔍 Glob: ${truncate(String(input.pattern ?? ""), 100)}`;
+    case "Grep":
+      return `🔍 Grep: "${truncate(String(input.pattern ?? ""), 100)}"`;
+    case "WebFetch":
+      return `🌐 Fetch: ${truncate(String(input.url ?? ""), 60)}`;
+    case "WebSearch":
+      return `🌐 Search: "${truncate(String(input.query ?? ""), 100)}"`;
+    default:
+      return `🔧 ${name}`;
+  }
+}
+
 /** Split long messages at smart boundaries (paragraph → sentence → line → word). */
 export function splitMessage(text: string, maxLength = 3900): string[] {
   if (text.length <= maxLength) return [text];
