@@ -1,3 +1,6 @@
+import { mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { Hono } from "hono";
 import { serve } from "inngest/hono";
 import { createBoltApp } from "@/bolt/app";
@@ -12,6 +15,9 @@ import {
 
 // Must delete before Agent SDK query() — SDK detects Claude Code env and changes behavior.
 delete process.env.CLAUDECODE;
+
+// Ensure data directories exist
+await mkdir(join(homedir(), ".kos/agent/sessions"), { recursive: true });
 
 // All Inngest functions registered
 const functions = [acknowledgeMessage, handleFailure, handleMessage, sendReply];
@@ -30,4 +36,4 @@ const bolt = createBoltApp();
 registerListeners(bolt, inngest);
 await bolt.start();
 
-console.log("Agent system running — Hono :9080, Bolt Socket Mode, Inngest");
+console.log("kos-agent running — Hono :9080, Bolt Socket Mode, Inngest");
