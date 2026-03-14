@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.kyrelldixon.inngest-dev</string>
+    <key>UserName</key>
+    <string>kyrelldixon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/inngest-cli</string>
+        <string>dev</string>
+        <string>--no-discovery</string>
+        <string>-u</string>
+        <string>http://localhost:9080/api/inngest</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/Users/kyrelldixon</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/kyrelldixon/Library/Logs/inngest-dev.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/kyrelldixon/Library/Logs/inngest-dev.err</string>
+</dict>
+</plist>

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.kyrelldixon.kos-agent</string>
+    <key>UserName</key>
+    <string>kyrelldixon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/bun</string>
+        <string>run</string>
+        <string>src/index.ts</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/kyrelldixon/projects/kos-agent</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PORT</key>
+        <string>9080</string>
+        <key>NODE_ENV</key>
+        <string>production</string>
+        <key>INNGEST_DEV</key>
+        <string>1</string>
+        <key>OP_TOKEN</key>
+        <string>REPLACE_WITH_SERVICE_ACCOUNT_TOKEN</string>
+        <key>CF_ACCESS_CLIENT_ID</key>
+        <string>REPLACE_WITH_CF_ACCESS_CLIENT_ID</string>
+        <key>HOME</key>
+        <string>/Users/kyrelldixon</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/kyrelldixon/Library/Logs/kos-agent.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/kyrelldixon/Library/Logs/kos-agent.err</string>
+</dict>
+</plist>
