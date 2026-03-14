@@ -14,7 +14,9 @@ function restorePattern(tag: string): RegExp {
 export function markdownToSlackMrkdwn(text: string): string {
   const codeBlocks: string[] = [];
   let result = text.replace(/```[\s\S]*?```/g, (match) => {
-    codeBlocks.push(match);
+    // Strip language tags — Slack renders them as literal text
+    const stripped = match.replace(/^```\w*\n/, "```\n");
+    codeBlocks.push(stripped);
     return placeholder("CODE", codeBlocks.length - 1);
   });
   const inlineCode: string[] = [];

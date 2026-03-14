@@ -13,7 +13,16 @@ export const sendReply = inngest.createFunction(
 
     await step.run("send", async () => {
       if (channel === "slack") {
-        const formatted = markdownToSlackMrkdwn(response);
+        const text = response?.trim();
+        if (!text) {
+          await slack.chat.postMessage({
+            channel: destination.chatId,
+            text: "_No response generated._",
+            thread_ts: destination.threadId,
+          });
+          return;
+        }
+        const formatted = markdownToSlackMrkdwn(text);
         const chunks = splitMessage(formatted);
         for (const chunk of chunks) {
           await slack.chat.postMessage({

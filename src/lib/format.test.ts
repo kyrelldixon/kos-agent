@@ -21,6 +21,11 @@ describe("markdownToSlackMrkdwn", () => {
     expect(markdownToSlackMrkdwn(input)).toBe(input);
   });
 
+  test("strips language tags from code blocks", () => {
+    const input = "```typescript\nconst x = 1;\n```";
+    expect(markdownToSlackMrkdwn(input)).toBe("```\nconst x = 1;\n```");
+  });
+
   test("preserves inline code", () => {
     const input = "use `const` here";
     expect(markdownToSlackMrkdwn(input)).toBe("use `const` here");
