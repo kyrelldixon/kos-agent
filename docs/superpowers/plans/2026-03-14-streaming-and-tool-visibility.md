@@ -28,6 +28,8 @@ agent-system/
     inngest/
       functions/
         handle-message.ts           # Rewrite: streaming loop + display modes (MODIFY)
+        send-reply.ts               # Add NonRetriableError for permanent Slack errors (MODIFY)
+        handle-failure.ts           # Add NonRetriableError to prevent failure loops (MODIFY)
   data/
     channels.json                   # Add displayMode field (MODIFY)
 ```
@@ -270,9 +272,202 @@ git commit -m "feat(lib): add displayMode config and getDisplayMode"
 
 ---
 
+### Task 3: Add Inngest error handling to send-reply and handle-failure
+
+**Files:**
+- Modify: `src/inngest/functions/send-reply.ts`
+- Modify: `src/inngest/functions/handle-failure.ts`
+
+Per the Inngest docs, we should use `NonRetriableError` for permanent failures (e.g., `missing_scope`) and `RetryAfterError` for rate limits. Currently all Slack API errors are treated the same way.
+
+- [ ] **Step 1: Update send-reply.ts with proper error classification**
+
+Rewrite `src/inngest/functions/send-reply.ts`:
+```typescript
+import { NonRetriableError } from "inngest";
+import { agentReplyReady, inngest } from "@/inngest/client";
+import { markdownToSlackMrkdwn, splitMessage } from "@/lib/format";
+import { slack } from "@/lib/slack";
+
+/** Classify Slack API errors and throw the appropriate Inngest error type. */
+function handleSlackError(err: unknown, context: string): never {
+  const slackError = err as { data?: { error?: string; retry_after?: number } };
+  const errorCode = slackError.data?.error ?? "unknown";
+
+  // Permanent errors — retrying won't help
+  const permanent = ["missing_scope", "not_authed", "invalid_auth", "account_inactive", "channel_not_found", "not_in_channel"];
+  if (permanent.includes(errorCode)) {
+    throw new NonRetriableError(`${context}: ${errorCode}`, { cause: err as Error });
+  }
+
+  // Re-throw for Inngest to retry with default backoff
+  throw err;
+}
+
+export const sendReply = inngest.createFunction(
+  {
+    id: "send-reply",
+    retries: 3,
+    triggers: [agentReplyReady],
+  },
+  async ({ event, step }) => {
+    const { response, channel, destination } = event.data;
+
+    await step.run("send", async () => {
+      if (channel === "slack") {
+        const text = response?.trim();
+        if (!text) {
+          await slack.chat.postMessage({
+            channel: destination.chatId,
+            text: "_No response generated._",
+            thread_ts: destination.threadId,
+          }).catch((err) => handleSlackError(err, "send empty response"));
+          return;
+        }
+        const formatted = markdownToSlackMrkdwn(text);
+        const chunks = splitMessage(formatted);
+        for (const chunk of chunks) {
+          await slack.chat.postMessage({
+            channel: destination.chatId,
+            text: chunk,
+            thread_ts: destination.threadId,
+          }).catch((err) => handleSlackError(err, "send reply chunk"));
+        }
+      }
+    });
+
+    try {
+      await step.run("remove-brain-reaction", async () => {
+        if (channel === "slack") {
+          await slack.reactions.remove({
+            channel: destination.chatId,
+            timestamp: destination.messageId,
+            name: "brain",
+          });
+        }
+      });
+    } catch (err) {
+      console.warn("remove brain reaction failed:", err);
+    }
+
+    try {
+      await step.run("add-checkmark-reaction", async () => {
+        if (channel === "slack") {
+          await slack.reactions.add({
+            channel: destination.chatId,
+            timestamp: destination.messageId,
+            name: "white_check_mark",
+          });
+        }
+      });
+    } catch (err) {
+      console.warn("add checkmark reaction failed:", err);
+    }
+  },
+);
+```
+
+Key changes:
+- Import `NonRetriableError` from `inngest`
+- `handleSlackError()` classifies Slack errors: permanent errors → `NonRetriableError`, transient → re-throw for retry
+- Critical Slack calls (posting the response) use `.catch(handleSlackError)` so permanent failures fail fast
+- Reaction steps still use try/catch `step.run()` (non-critical, handled gracefully)
+
+- [ ] **Step 2: Update handle-failure.ts with NonRetriableError**
+
+Rewrite `src/inngest/functions/handle-failure.ts`:
+```typescript
+import { NonRetriableError } from "inngest";
+import { inngest } from "@/inngest/client";
+import { slack } from "@/lib/slack";
+
+export const handleFailure = inngest.createFunction(
+  {
+    id: "handle-failure",
+    retries: 0,
+    triggers: [{ event: "inngest/function.failed" }],
+  },
+  async ({ event, step }) => {
+    const originalEvent = event.data.event;
+    if (!originalEvent?.data?.destination) return;
+
+    const { chatId, threadId, messageId } = originalEvent.data.destination;
+    const channel = originalEvent.data.channel;
+    const functionId = event.data.function_id;
+    const error = event.data.error?.message ?? "Unknown error";
+
+    try {
+      await step.run("remove-brain-reaction", async () => {
+        if (channel === "slack") {
+          await slack.reactions.remove({
+            channel: chatId,
+            timestamp: messageId,
+            name: "brain",
+          });
+        }
+      });
+    } catch (err) {
+      console.warn("remove brain reaction failed:", err);
+    }
+
+    try {
+      await step.run("add-error-reaction", async () => {
+        if (channel === "slack") {
+          await slack.reactions.add({
+            channel: chatId,
+            timestamp: messageId,
+            name: "x",
+          });
+        }
+      });
+    } catch (err) {
+      console.warn("add error reaction failed:", err);
+    }
+
+    await step.run("notify-user", async () => {
+      if (channel === "slack") {
+        try {
+          await slack.chat.postMessage({
+            channel: chatId,
+            text: `Something went wrong (\`${functionId}\`): ${error.slice(0, 150)}`,
+            thread_ts: threadId,
+          });
+        } catch (err) {
+          // If we can't even post the error message, don't retry — prevent infinite failure loops
+          const slackError = err as { data?: { error?: string } };
+          throw new NonRetriableError(
+            `Failed to post error notification: ${slackError.data?.error ?? "unknown"}`,
+            { cause: err as Error },
+          );
+        }
+      }
+    });
+  },
+);
+```
+
+Key change: The error notification step uses `NonRetriableError` if it can't post to Slack — prevents infinite failure handler → failure → failure loops.
+
+- [ ] **Step 3: Run typecheck and tests**
+
+```bash
+cd ~/projects/agent-system && bunx tsc --noEmit && bun test
+```
+
+Expected: PASS.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/inngest/functions/send-reply.ts src/inngest/functions/handle-failure.ts
+git commit -m "fix(inngest): use NonRetriableError for permanent Slack failures"
+```
+
+---
+
 ## Chunk 2: Session Streaming Refactor
 
-### Task 3: Refactor session.ts to return AsyncIterable
+### Task 4: Refactor session.ts to return AsyncIterable (renumbered from 3)
 
 **Files:**
 - Modify: `src/agent/session.ts`
@@ -402,7 +597,7 @@ Do NOT commit yet — session.ts and handle-message.ts must be committed togethe
 
 ## Chunk 3: Handle Message Streaming Rewrite
 
-### Task 4: Rewrite handle-message with streaming loop (continues Task 3)
+### Task 5: Rewrite handle-message with streaming loop (continues Task 4)
 
 **Files:**
 - Modify: `src/inngest/functions/handle-message.ts`
@@ -588,7 +783,7 @@ cd ~/projects/agent-system && bun test
 
 Expected: all tests PASS. The handle-message function itself isn't unit-tested (it's an Inngest function with Slack side effects), but all imported modules have their own tests.
 
-- [ ] **Step 4: Commit (includes session.ts refactor from Task 3)**
+- [ ] **Step 4: Commit (includes session.ts refactor from Task 4)**
 
 ```bash
 git add src/agent/session.ts src/agent/session.test.ts src/inngest/functions/handle-message.ts
@@ -599,7 +794,7 @@ git commit -m "feat: stream agent activity to Slack in real-time"
 
 ## Chunk 4: Verification
 
-### Task 5: Smoke test the streaming flow
+### Task 6: Smoke test the streaming flow
 
 This is a manual verification task — no code to write.
 
