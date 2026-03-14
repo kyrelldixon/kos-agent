@@ -10,6 +10,7 @@ interface ChannelData {
 }
 
 interface ChannelsConfig {
+  displayMode?: "verbose" | "compact";
   allowedUsers: string | string[];
   channels: Record<string, ChannelData>;
   workspaces: { label: string; path: string }[];
@@ -71,4 +72,9 @@ export async function getWorkspaces(): Promise<
 export async function getGlobalDefault(): Promise<string> {
   const config = await loadConfig();
   return config.globalDefault ?? GLOBAL_DEFAULT;
+}
+
+export async function getDisplayMode(): Promise<"verbose" | "compact"> {
+  const config = await loadConfig();
+  return config.displayMode ?? "verbose";
 }
