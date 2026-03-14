@@ -18,7 +18,12 @@ export const acknowledgeMessage = inngest.createFunction(
             timestamp: destination.messageId,
             name: "brain",
           })
-          .catch(() => {});
+          .catch((err) =>
+            console.warn(
+              "reaction add failed:",
+              err.data?.error ?? err.message,
+            ),
+          );
       }
     });
   },

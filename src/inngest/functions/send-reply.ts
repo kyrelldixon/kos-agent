@@ -33,14 +33,18 @@ export const sendReply = inngest.createFunction(
             timestamp: destination.messageId,
             name: "brain",
           })
-          .catch(() => {});
+          .catch((err) =>
+            console.warn("reaction failed:", err.data?.error ?? err.message),
+          );
         await slack.reactions
           .add({
             channel: destination.chatId,
             timestamp: destination.messageId,
             name: "white_check_mark",
           })
-          .catch(() => {});
+          .catch((err) =>
+            console.warn("reaction failed:", err.data?.error ?? err.message),
+          );
       }
     });
   },

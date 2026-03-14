@@ -20,14 +20,18 @@ export const handleFailure = inngest.createFunction(
       if (channel === "slack") {
         await slack.reactions
           .remove({ channel: chatId, timestamp: messageId, name: "brain" })
-          .catch(() => {});
+          .catch((err) =>
+            console.warn("reaction failed:", err.data?.error ?? err.message),
+          );
         await slack.reactions
           .add({
             channel: chatId,
             timestamp: messageId,
             name: "x",
           })
-          .catch(() => {});
+          .catch((err) =>
+            console.warn("reaction failed:", err.data?.error ?? err.message),
+          );
         await slack.chat.postMessage({
           channel: chatId,
           text: `Something went wrong (\`${functionId}\`): ${error.slice(0, 150)}`,
