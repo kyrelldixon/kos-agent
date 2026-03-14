@@ -16,22 +16,36 @@ export const handleFailure = inngest.createFunction(
     const functionId = event.data.function_id;
     const error = event.data.error?.message ?? "Unknown error";
 
-    await step.run("notify-user", async () => {
-      if (channel === "slack") {
-        await slack.reactions
-          .remove({ channel: chatId, timestamp: messageId, name: "brain" })
-          .catch((err) =>
-            console.warn("reaction failed:", err.data?.error ?? err.message),
-          );
-        await slack.reactions
-          .add({
+    try {
+      await step.run("remove-brain-reaction", async () => {
+        if (channel === "slack") {
+          await slack.reactions.remove({
+            channel: chatId,
+            timestamp: messageId,
+            name: "brain",
+          });
+        }
+      });
+    } catch (err) {
+      console.warn("remove brain reaction failed:", err);
+    }
+
+    try {
+      await step.run("add-error-reaction", async () => {
+        if (channel === "slack") {
+          await slack.reactions.add({
             channel: chatId,
             timestamp: messageId,
             name: "x",
-          })
-          .catch((err) =>
-            console.warn("reaction failed:", err.data?.error ?? err.message),
-          );
+          });
+        }
+      });
+    } catch (err) {
+      console.warn("add error reaction failed:", err);
+    }
+
+    await step.run("notify-user", async () => {
+      if (channel === "slack") {
         await slack.chat.postMessage({
           channel: chatId,
           text: `Something went wrong (\`${functionId}\`): ${error.slice(0, 150)}`,

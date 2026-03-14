@@ -25,27 +25,32 @@ export const sendReply = inngest.createFunction(
       }
     });
 
-    await step.run("update-reaction", async () => {
-      if (channel === "slack") {
-        await slack.reactions
-          .remove({
+    try {
+      await step.run("remove-brain-reaction", async () => {
+        if (channel === "slack") {
+          await slack.reactions.remove({
             channel: destination.chatId,
             timestamp: destination.messageId,
             name: "brain",
-          })
-          .catch((err) =>
-            console.warn("reaction failed:", err.data?.error ?? err.message),
-          );
-        await slack.reactions
-          .add({
+          });
+        }
+      });
+    } catch (err) {
+      console.warn("remove brain reaction failed:", err);
+    }
+
+    try {
+      await step.run("add-checkmark-reaction", async () => {
+        if (channel === "slack") {
+          await slack.reactions.add({
             channel: destination.chatId,
             timestamp: destination.messageId,
             name: "white_check_mark",
-          })
-          .catch((err) =>
-            console.warn("reaction failed:", err.data?.error ?? err.message),
-          );
-      }
-    });
+          });
+        }
+      });
+    } catch (err) {
+      console.warn("add checkmark reaction failed:", err);
+    }
   },
 );

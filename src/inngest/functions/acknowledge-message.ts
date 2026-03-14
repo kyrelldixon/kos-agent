@@ -10,21 +10,18 @@ export const acknowledgeMessage = inngest.createFunction(
   async ({ event, step }) => {
     const { channel, destination } = event.data;
 
-    await step.run("acknowledge", async () => {
-      if (channel === "slack") {
-        await slack.reactions
-          .add({
+    try {
+      await step.run("add-reaction", async () => {
+        if (channel === "slack") {
+          await slack.reactions.add({
             channel: destination.chatId,
             timestamp: destination.messageId,
             name: "brain",
-          })
-          .catch((err) =>
-            console.warn(
-              "reaction add failed:",
-              err.data?.error ?? err.message,
-            ),
-          );
-      }
-    });
+          });
+        }
+      });
+    } catch (err) {
+      console.warn("acknowledge reaction failed:", err);
+    }
   },
 );
