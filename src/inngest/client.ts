@@ -1,38 +1,38 @@
-import { eventType, Inngest, staticSchema } from "inngest";
+import { eventType, Inngest } from "inngest";
+import { z } from "zod";
 
-export const inngest = new Inngest({
-  id: "agent-system",
-  checkpointing: true,
+export const inngest = new Inngest({ id: "agent-system" });
+
+// --- Shared schemas ---
+
+const destinationSchema = z.object({
+  chatId: z.string(),
+  threadId: z.string(),
+  messageId: z.string(),
 });
 
-// --- Normalized types (channel-agnostic for multi-channel readiness) ---
+export type Destination = z.infer<typeof destinationSchema>;
 
-export type Destination = {
-  chatId: string;
-  threadId: string;
-  messageId: string;
-};
-
-export type AgentMessageData = {
-  message: string;
-  sessionKey: string;
-  channel: string;
-  sender: { id: string; name?: string };
-  destination: Destination;
-};
-
-export type AgentReplyData = {
-  response: string;
-  channel: string;
-  destination: Destination;
-};
-
-// --- Typed event definitions ---
+// --- Typed event definitions (runtime-validated via Zod) ---
 
 export const agentMessageReceived = eventType("agent.message.received", {
-  schema: staticSchema<AgentMessageData>(),
+  schema: z.object({
+    message: z.string(),
+    sessionKey: z.string(),
+    channel: z.string(),
+    sender: z.object({ id: z.string(), name: z.string().optional() }),
+    destination: destinationSchema,
+  }),
 });
 
+export type AgentMessageData = z.infer<typeof agentMessageReceived.schema>;
+
 export const agentReplyReady = eventType("agent.reply.ready", {
-  schema: staticSchema<AgentReplyData>(),
+  schema: z.object({
+    response: z.string(),
+    channel: z.string(),
+    destination: destinationSchema,
+  }),
 });
+
+export type AgentReplyData = z.infer<typeof agentReplyReady.schema>;

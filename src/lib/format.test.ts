@@ -119,7 +119,7 @@ describe("formatToolUse", () => {
   });
 
   test("truncates long URLs at 60 chars", () => {
-    const longUrl = "https://example.com/" + "a".repeat(60);
+    const longUrl = `https://example.com/${"a".repeat(60)}`;
     const result = formatToolUse("WebFetch", { url: longUrl });
     expect(result.length).toBeLessThanOrEqual(70);
   });
