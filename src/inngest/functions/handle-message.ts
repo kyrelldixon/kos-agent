@@ -36,10 +36,16 @@ export const handleMessage = inngest.createFunction(
     });
 
     // --- Streaming zone (not in a step) ---
+    // Three display modes:
+    //   verbose  — every tool gets its own message (detailed, for debugging)
+    //   compact  — one updating status message per tool batch, resets on text
+    //   minimal  — text only, no tool messages
 
     let sessionId: string | undefined = session?.sessionId;
     let resultText = "";
-    let statusMessageTs: string | undefined; // For compact mode
+    let statusMessageTs: string | undefined;
+    let toolCount = 0;
+    let textPosted = false;
 
     const stream = streamAgentSession({
       message,
@@ -55,16 +61,18 @@ export const handleMessage = inngest.createFunction(
 
       if (msg.type === "assistant" && msg.message?.content) {
         for (const part of msg.message.content) {
-          // Tool use → post formatted tool message
+          // --- Tool use ---
           if (part.type === "tool_use") {
+            toolCount++;
             const toolText = formatToolUse(
               part.name,
               part.input as Record<string, unknown>,
             );
             console.log(`[agent] ${toolText}`);
 
-            if (channel === "slack") {
+            if (channel === "slack" && displayMode !== "minimal") {
               if (displayMode === "verbose") {
+                // Verbose: every tool gets its own message
                 await slack.chat
                   .postMessage({
                     channel: destination.chatId,
@@ -78,12 +86,13 @@ export const handleMessage = inngest.createFunction(
                     ),
                   );
               } else {
-                // Compact: post or update status message
+                // Compact: one updating status message
+                const statusText = `🔧 Working... (${toolText.replace(/^[^\s]+ /, "")})`;
                 if (!statusMessageTs) {
                   const res = await slack.chat
                     .postMessage({
                       channel: destination.chatId,
-                      text: toolText,
+                      text: statusText,
                       thread_ts: destination.threadId,
                     })
                     .catch((err) => {
@@ -99,7 +108,7 @@ export const handleMessage = inngest.createFunction(
                     .update({
                       channel: destination.chatId,
                       ts: statusMessageTs,
-                      text: toolText,
+                      text: statusText,
                     })
                     .catch((err) =>
                       console.warn(
@@ -112,11 +121,34 @@ export const handleMessage = inngest.createFunction(
             }
           }
 
-          // Text → post formatted text message
+          // --- Text ---
           if (part.type === "text" && part.text?.trim()) {
             console.log(`[agent] Assistant text (${part.text.length} chars)`);
 
             if (channel === "slack") {
+              // Compact: finalize the status message before posting text
+              if (
+                displayMode === "compact" &&
+                statusMessageTs &&
+                toolCount > 0
+              ) {
+                await slack.chat
+                  .update({
+                    channel: destination.chatId,
+                    ts: statusMessageTs,
+                    text: `🔧 Done (${toolCount} tools used)`,
+                  })
+                  .catch((err) =>
+                    console.warn(
+                      "status finalize failed:",
+                      err.data?.error ?? err.message,
+                    ),
+                  );
+                // Reset for next batch
+                statusMessageTs = undefined;
+                toolCount = 0;
+              }
+
               const formatted = markdownToSlackMrkdwn(part.text);
               const chunks = splitMessage(formatted);
               for (const chunk of chunks) {
@@ -133,6 +165,7 @@ export const handleMessage = inngest.createFunction(
                     ),
                   );
               }
+              textPosted = true;
             }
           }
         }
@@ -149,17 +182,38 @@ export const handleMessage = inngest.createFunction(
       }
     }
 
-    // Compact mode: update status to done
-    if (displayMode === "compact" && statusMessageTs && channel === "slack") {
+    // Compact: finalize status message if no text came after last tool batch
+    if (
+      displayMode === "compact" &&
+      statusMessageTs &&
+      toolCount > 0 &&
+      channel === "slack"
+    ) {
       await slack.chat
         .update({
           channel: destination.chatId,
           ts: statusMessageTs,
-          text: "✅ Done",
+          text: `✅ Done (${toolCount} tools used)`,
         })
         .catch((err) =>
           console.warn(
             "status done update failed:",
+            err.data?.error ?? err.message,
+          ),
+        );
+    }
+
+    // If nothing was posted during streaming, post empty response
+    if (!textPosted && !resultText?.trim() && channel === "slack") {
+      await slack.chat
+        .postMessage({
+          channel: destination.chatId,
+          text: "_No response generated._",
+          thread_ts: destination.threadId,
+        })
+        .catch((err) =>
+          console.warn(
+            "empty response failed:",
             err.data?.error ?? err.message,
           ),
         );
@@ -179,6 +233,7 @@ export const handleMessage = inngest.createFunction(
       });
     }
 
+    // send-reply now only handles reaction swap (brain → checkmark)
     await step.sendEvent("send-reply", {
       name: "agent.reply.ready",
       data: {
