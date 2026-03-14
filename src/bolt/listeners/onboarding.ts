@@ -1,12 +1,12 @@
 import type { App } from "@slack/bolt";
-import { getGlobalDefault, getWorkspaces } from "@/lib/channels";
+import { getGlobalDefault, scanWorkspaces } from "@/lib/channels";
 
 export function registerOnboardingListeners(app: App) {
   app.event("member_joined_channel", async ({ event, client }) => {
     const botInfo = await client.auth.test();
     if (event.user !== botInfo.user_id) return;
 
-    const workspaces = await getWorkspaces();
+    const workspaces = await scanWorkspaces();
     const globalDefault = await getGlobalDefault();
 
     await client.chat.postMessage({
@@ -26,8 +26,8 @@ export function registerOnboardingListeners(app: App) {
               text: { type: "plain_text", text: "kyrell-os" },
               value: globalDefault,
             },
-            options: workspaces.map((ws) => ({
-              text: { type: "plain_text", text: ws.label },
+            options: workspaces.map((ws: { name: string; path: string }) => ({
+              text: { type: "plain_text", text: ws.name },
               value: ws.path,
             })),
           },

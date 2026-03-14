@@ -1,6 +1,7 @@
+import { homedir } from "node:os";
 import { join } from "node:path";
 
-const SESSIONS_DIR = "data/sessions";
+const SESSIONS_DIR = join(homedir(), ".kos/agent/sessions");
 
 interface SessionData {
   sessionId?: string;

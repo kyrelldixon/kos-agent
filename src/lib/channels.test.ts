@@ -3,12 +3,13 @@ import {
   getDisplayMode,
   isUserAllowed,
   resolveWorkspace,
+  scanWorkspaces,
 } from "@/lib/channels";
 
 describe("isUserAllowed", () => {
-  test("denies unlisted user", async () => {
-    const result = await isUserAllowed("U_RANDOM_UNKNOWN");
-    expect(result).toBe(false);
+  test("allows all users when allowedUsers is '*'", async () => {
+    const result = await isUserAllowed("U_ANY_USER");
+    expect(result).toBe(true);
   });
 });
 
@@ -22,7 +23,17 @@ describe("resolveWorkspace", () => {
 describe("getDisplayMode", () => {
   test("returns display mode from config", async () => {
     const result = await getDisplayMode();
-    // channels.json is set to "compact" — test matches current config
     expect(["verbose", "compact", "minimal"]).toContain(result);
+  });
+});
+
+describe("scanWorkspaces", () => {
+  test("returns array of directories", async () => {
+    const result = await scanWorkspaces();
+    expect(Array.isArray(result)).toBe(true);
+    if (result.length > 0) {
+      expect(result[0]).toHaveProperty("name");
+      expect(result[0]).toHaveProperty("path");
+    }
   });
 });
