@@ -1,3 +1,4 @@
+import { NonRetriableError } from "inngest";
 import { inngest } from "@/inngest/client";
 import { slack } from "@/lib/slack";
 
@@ -46,11 +47,20 @@ export const handleFailure = inngest.createFunction(
 
     await step.run("notify-user", async () => {
       if (channel === "slack") {
-        await slack.chat.postMessage({
-          channel: chatId,
-          text: `Something went wrong (\`${functionId}\`): ${error.slice(0, 150)}`,
-          thread_ts: threadId,
-        });
+        try {
+          await slack.chat.postMessage({
+            channel: chatId,
+            text: `Something went wrong (\`${functionId}\`): ${error.slice(0, 150)}`,
+            thread_ts: threadId,
+          });
+        } catch (err) {
+          // If we can't even post the error message, don't retry — prevent infinite failure loops
+          const slackError = err as { data?: { error?: string } };
+          throw new NonRetriableError(
+            `Failed to post error notification: ${slackError.data?.error ?? "unknown"}`,
+            { cause: err as Error },
+          );
+        }
       }
     });
   },
