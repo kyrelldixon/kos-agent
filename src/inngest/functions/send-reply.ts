@@ -34,11 +34,13 @@ export const sendReply = inngest.createFunction(
             name: "brain",
           })
           .catch(() => {});
-        await slack.reactions.add({
-          channel: destination.chatId,
-          timestamp: destination.messageId,
-          name: "white_check_mark",
-        });
+        await slack.reactions
+          .add({
+            channel: destination.chatId,
+            timestamp: destination.messageId,
+            name: "white_check_mark",
+          })
+          .catch(() => {});
       }
     });
   },

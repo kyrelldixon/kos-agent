@@ -12,11 +12,13 @@ export const acknowledgeMessage = inngest.createFunction(
 
     await step.run("acknowledge", async () => {
       if (channel === "slack") {
-        await slack.reactions.add({
-          channel: destination.chatId,
-          timestamp: destination.messageId,
-          name: "brain",
-        });
+        await slack.reactions
+          .add({
+            channel: destination.chatId,
+            timestamp: destination.messageId,
+            name: "brain",
+          })
+          .catch(() => {});
       }
     });
   },

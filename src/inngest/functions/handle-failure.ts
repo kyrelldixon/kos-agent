@@ -21,11 +21,13 @@ export const handleFailure = inngest.createFunction(
         await slack.reactions
           .remove({ channel: chatId, timestamp: messageId, name: "brain" })
           .catch(() => {});
-        await slack.reactions.add({
-          channel: chatId,
-          timestamp: messageId,
-          name: "x",
-        });
+        await slack.reactions
+          .add({
+            channel: chatId,
+            timestamp: messageId,
+            name: "x",
+          })
+          .catch(() => {});
         await slack.chat.postMessage({
           channel: chatId,
           text: `Something went wrong (\`${functionId}\`): ${error.slice(0, 150)}`,
