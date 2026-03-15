@@ -17,6 +17,8 @@
     <string>/Users/kyrelldixon/projects/kos-agent</string>
     <key>EnvironmentVariables</key>
     <dict>
+        <key>APP_ENV</key>
+        <string>production</string>
         <key>PORT</key>
         <string>9080</string>
         <key>NODE_ENV</key>
