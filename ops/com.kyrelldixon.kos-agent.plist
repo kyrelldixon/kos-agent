@@ -9,6 +9,9 @@
     <string>kyrelldixon</string>
     <key>ProgramArguments</key>
     <array>
+        <string>/opt/homebrew/bin/varlock</string>
+        <string>run</string>
+        <string>--</string>
         <string>/opt/homebrew/bin/bun</string>
         <string>run</string>
         <string>src/index.ts</string>
