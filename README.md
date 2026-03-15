@@ -1,49 +1,73 @@
-# Agent System
+# KOS Agent
 
-Personal agent system: Restate (durable execution) + Slack Bolt + Claude SDK.
+Personal always-on agent system: Slack Bolt + Inngest (durable execution) + Claude Agent SDK.
+
+Runs on a Mac Mini, accessible via Slack from any device. API endpoints for CLI access behind Cloudflare Access.
 
 ## Prerequisites
 
 - [Bun](https://bun.sh)
-- [Restate](https://restate.dev) — `brew install restatedev/tap/restate-server`
-- [just](https://github.com/casey/just) — `brew install just`
+- [Inngest CLI](https://www.inngest.com/docs/local-development) — `brew install inngest/tap/inngest`
 - [1Password](https://1password.com) desktop app with CLI integration enabled
 - [varlock](https://varlock.dev) — secrets resolved from 1Password via `.env.schema`
 
 ## Dev Workflow
 
-Two long-running processes, then a one-time registration:
+Two terminals:
 
 ```bash
-# Terminal 1: Restate server (data stored at ~/.restate/agent-system/)
-just restate
+# Terminal 1: Inngest dev server
+inngest-cli dev --no-discovery -u http://localhost:9080/api/inngest
 
-# Terminal 2: Bun app with hot reload (Bolt + Restate handlers)
-just dev
-
-# Terminal 3 (once both are up): Register handlers with Restate
-just register
+# Terminal 2: App with hot reload (Bolt + Hono + Inngest functions)
+bun dev
 ```
 
-`just register` only needs to run once per `restate` restart. If you change handler signatures, re-register.
+## API Endpoints
 
-## Useful Commands
-
-```bash
-just ping               # Test ping service
-just ping "hey there"   # Test with custom message
-just dashboard          # Open Restate UI at :9070
-just check              # TypeScript typecheck
-just reset              # Wipe all Restate state and start fresh
-```
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `GET` | `/health` | None | Health check |
+| `GET/POST/PUT` | `/api/inngest` | None (localhost) | Inngest serve handler |
+| `GET` | `/api/config` | CF Access | Current config |
+| `PATCH` | `/api/config` | CF Access | Update config |
+| `GET` | `/api/workspaces` | CF Access | List available workspaces |
+| `POST` | `/api/hooks/deploy` | HMAC | GitHub webhook deploy |
 
 ## Architecture
 
 - **Slack Bolt** (Socket Mode) — listens for DMs and @mentions
-- **Restate** on `:9080` — durable service handlers
-- **Restate ingress** on `:8080` — where you invoke services
-- **Restate UI** on `:9070` — dashboard for inspecting state
+- **Hono** on `:9080` — HTTP server for Inngest + API endpoints
+- **Inngest** — durable execution for message handling, reply sending, failure recovery
+- **Claude Agent SDK** — LLM sessions with tool use, resume support
+- **Cloudflare Tunnel** — external access via `kos.kyrelldixon.com`
+
+## Data
+
+State lives at `~/.kos/agent/` (not in the repo):
+
+```
+~/.kos/agent/
+├── channels.json        # Channel config, display mode, allowed users
+├── sessions/            # Per-thread session state
+└── deploy-secret.txt    # GitHub webhook HMAC secret
+```
+
+## Deployment
+
+Runs on the Mac Mini via LaunchDaemons. See the setup guide in the vault: `artifacts/KOS Agent — Mac Mini Setup Guide.md`
+
+```bash
+# First-time install
+bash deploy.sh --install
+
+# Subsequent deploys (also triggered by GitHub webhook on push to main)
+bash deploy.sh
+```
 
 ## Env Management
 
-Secrets managed by [varlock](https://varlock.dev) + 1Password. No `.env` file — `.env.schema` is the source of truth. See the `using-varlock` skill in `kyrell-os` for details.
+Secrets managed by [varlock](https://varlock.dev) + 1Password. No `.env` file — `.env.schema` is the source of truth.
+
+- **Local dev:** biometric auth via 1Password desktop app
+- **Production:** 1Password service account token (`OP_TOKEN` in plist)
