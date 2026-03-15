@@ -37,11 +37,11 @@ step()  { echo -e "\n${BOLD}==> $1${NC}"; }
 
 check_prereqs() {
   command -v bun &>/dev/null || error "bun not found."
-  command -v inngest-cli &>/dev/null || error "inngest-cli not found. Install with: brew install inngest/tap/inngest"
+  command -v inngest &>/dev/null || error "inngest not found. Install with: brew install inngest/tap/inngest"
   command -v git &>/dev/null || error "git not found."
 
   info "bun: $(which bun)"
-  info "inngest-cli: $(which inngest-cli)"
+  info "inngest: $(which inngest)"
 }
 
 build() {
