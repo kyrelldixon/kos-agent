@@ -42,6 +42,26 @@ hono.on(
 // Health check (no auth)
 hono.get("/health", (c) => c.json({ status: "ok" }));
 
+// TEMPORARY: Test launchctl from within kos-agent process (remove after Test 0)
+hono.get("/test/launchctl", async (c) => {
+  const uid = String(process.getuid?.() ?? 501);
+  const bootstrap = Bun.spawnSync([
+    "launchctl",
+    "bootstrap",
+    `gui/${uid}`,
+    join(homedir(), "Library/LaunchAgents/kos.test.plist"),
+  ]);
+  const list = Bun.spawnSync(["launchctl", "list"]);
+  const listOut = new TextDecoder().decode(list.stdout);
+  const kosLines = listOut.split("\n").filter((l) => l.includes("kos"));
+  return c.json({
+    uid,
+    bootstrapOk: bootstrap.exitCode === 0,
+    bootstrapStderr: new TextDecoder().decode(bootstrap.stderr),
+    kosLines,
+  });
+});
+
 // Deploy webhook (auth via HMAC signature, Cloudflare Access bypass)
 const deploySecret = await getOrCreateDeploySecret(
   join(dataDir, "deploy-secret.txt"),
