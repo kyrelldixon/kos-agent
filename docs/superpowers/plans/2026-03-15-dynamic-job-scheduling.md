@@ -34,6 +34,88 @@ src/
 
 ---
 
+## Manual Testing Checkpoints
+
+Testing is interleaved with implementation. Do NOT skip these — they validate real-system behavior that unit tests can't cover.
+
+| Checkpoint | When | What to validate |
+|---|---|---|
+| **Test 0** | Before any code | Can `launchctl bootstrap gui/<uid>` work from SSH and from within the kos-agent LaunchDaemon process? This is the architecture's biggest risk. |
+| **Test 1** | After Chunk 1 | Manually create a job dir, call `syncAllJobs()` on startup. Verify: plist appears, `launchctl list` shows it, `run` script fires and Inngest receives the event (check dashboard). |
+| **Test 2** | After Chunk 2 | Manually `curl` an `agent.job.triggered` event to Inngest. Verify: `handleScheduledJob` runs, script output appears in Slack DM, errors post to Slack. |
+| **Test 3** | After Chunk 3 | Create a job via `POST /api/jobs`, wait for schedule to fire. Full end-to-end: API → job.json → plist → LaunchAgent → curl → Inngest → Slack. |
+
+### Test 0: LaunchAgent Domain Feasibility (BEFORE any code)
+
+**This must pass before implementation starts.** If it fails, the architecture needs to change.
+
+- [ ] **Step 1: Test basic LaunchAgent from SSH**
+
+SSH to Mac Mini and create a trivial test plist:
+```bash
+ssh kyrelldixon@mac-mini
+
+cat > ~/Library/LaunchAgents/kos.test.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>kos.test</string>
+    <key>ProgramArguments</key>
+    <array><string>/bin/echo</string><string>hello from launchd</string></array>
+    <key>StartInterval</key>
+    <integer>30</integer>
+    <key>StandardOutPath</key>
+    <string>/tmp/kos-test.log</string>
+</dict>
+</plist>
+EOF
+
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/kos.test.plist
+launchctl list | grep kos.test
+# Wait 30s, then:
+cat /tmp/kos-test.log   # Should show "hello from launchd"
+```
+
+- [ ] **Step 2: Test launchctl from within kos-agent process**
+
+Add a temporary test route to `src/index.ts` (remove after testing):
+```typescript
+hono.get("/test/launchctl", async (c) => {
+  const uid = String(process.getuid?.() ?? 501);
+  const result = Bun.spawnSync(["launchctl", "list"]);
+  const output = new TextDecoder().decode(result.stdout);
+  const kosLines = output.split("\n").filter(l => l.includes("kos"));
+  return c.json({ uid, kosLines, exitCode: result.exitCode });
+});
+```
+
+Deploy and test:
+```bash
+curl http://localhost:9080/test/launchctl | jq .
+```
+
+If the process can see and manage LaunchAgents in `gui/<uid>`, we're good. If not, test the fallback:
+```bash
+# From within the kos-agent process, try:
+launchctl asuser <uid> launchctl bootstrap gui/<uid> <plist>
+```
+
+- [ ] **Step 3: Clean up**
+
+```bash
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/kos.test.plist
+rm ~/Library/LaunchAgents/kos.test.plist /tmp/kos-test.log
+```
+
+Remove the temporary test route from `src/index.ts`.
+
+**If Test 0 fails:** The fallback is `launchctl asuser <uid>` wrapper. If that also fails, jobs must run as LaunchDaemons (system scope, requires sudo). Revisit the spec before proceeding.
+
+---
+
 ## Chunk 1: Job Schema + Sync System
 
 Core infrastructure — Zod schemas, plist generation, launchctl management, job discovery. No Inngest or API yet, just the sync engine that translates job directories into running LaunchAgents.
@@ -581,6 +663,66 @@ gcm "feat(jobs): add job discovery, install, uninstall, and sync"
 
 ---
 
+### Test 1: LaunchAgent Pipeline Validation (after Chunk 1)
+
+Validate that the sync system creates real, working LaunchAgents before building the Inngest handler.
+
+- [ ] **Step 1: Create a test job directory manually**
+
+```bash
+mkdir -p ~/.kos/agent/jobs/test-echo
+cat > ~/.kos/agent/jobs/test-echo/job.json << 'EOF'
+{
+  "name": "test-echo",
+  "schedule": { "type": "periodic", "seconds": 60 },
+  "execution": { "type": "script" },
+  "destination": { "chatId": "PLACEHOLDER" },
+  "disabled": false,
+  "createdAt": "2026-03-15T12:00:00Z",
+  "updatedAt": "2026-03-15T12:00:00Z"
+}
+EOF
+```
+
+- [ ] **Step 2: Temporarily call `syncAllJobs()` on startup and restart the dev server**
+
+Add to `src/index.ts` temporarily:
+```typescript
+import { syncAllJobs } from "@/jobs/sync";
+const report = await syncAllJobs();
+console.log("[jobs] sync report:", JSON.stringify(report));
+```
+
+Run: `bun run dev`
+
+- [ ] **Step 3: Verify LaunchAgent is registered and fires**
+
+```bash
+launchctl list | grep kos.job             # should show kos.job.test-echo
+cat ~/Library/LaunchAgents/kos.job.test-echo.plist  # should be valid XML
+cat ~/.kos/agent/jobs/test-echo/run       # should be the curl script
+```
+
+Wait 60s, then check:
+```bash
+cat ~/.kos/agent/logs/kos.job.test-echo.out.log   # curl output
+cat ~/.kos/agent/logs/kos.job.test-echo.err.log   # any errors
+```
+
+Check Inngest dashboard — should see `agent.job.triggered` event arrive (even though no function handles it yet).
+
+- [ ] **Step 4: Clean up**
+
+```bash
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/kos.job.test-echo.plist
+rm ~/Library/LaunchAgents/kos.job.test-echo.plist
+rm -rf ~/.kos/agent/jobs/test-echo
+```
+
+Remove the temporary `syncAllJobs()` call from `src/index.ts`.
+
+---
+
 ## Chunk 2: Inngest Function + handleFailure Update
 
 ### Task 5: Add `agent.job.triggered` Event Type
@@ -886,6 +1028,63 @@ Expected: All existing tests PASS
 ```bash
 ga src/inngest/functions/handle-scheduled-job.ts src/inngest/functions/index.ts
 gcm "feat(jobs): add handleScheduledJob Inngest function"
+```
+
+---
+
+### Test 2: Inngest Function Validation (after Chunk 2)
+
+Validate that `handleScheduledJob` handles events and posts to Slack before building the API layer.
+
+- [ ] **Step 1: Create a test job directory with a script**
+
+```bash
+mkdir -p ~/.kos/agent/jobs/test-echo
+cat > ~/.kos/agent/jobs/test-echo/job.json << 'EOF'
+{
+  "name": "test-echo",
+  "schedule": { "type": "periodic", "seconds": 3600 },
+  "execution": { "type": "script" },
+  "destination": { "chatId": "YOUR_DM_CHANNEL_ID" },
+  "disabled": false,
+  "createdAt": "2026-03-15T12:00:00Z",
+  "updatedAt": "2026-03-15T12:00:00Z"
+}
+EOF
+
+echo '#!/bin/bash
+echo "Test job fired at $(date)"' > ~/.kos/agent/jobs/test-echo/script
+chmod +x ~/.kos/agent/jobs/test-echo/script
+```
+
+- [ ] **Step 2: Wire the Inngest function and restart dev server**
+
+Ensure `handleScheduledJob` is in the functions array in `src/index.ts`. Start the dev server + Inngest dev server.
+
+- [ ] **Step 3: Manually fire the event**
+
+```bash
+curl -s -X POST http://localhost:8288/e/key \
+  -H "Content-Type: application/json" \
+  -d '{"name":"agent.job.triggered","data":{"job":"test-echo"}}'
+```
+
+Check Inngest dashboard: `handle-scheduled-job` should appear and complete.
+Check Slack DM: should see "Test job fired at ..." message.
+
+- [ ] **Step 4: Test error handling — broken script**
+
+```bash
+echo '#!/bin/bash
+exit 1' > ~/.kos/agent/jobs/test-echo/script
+```
+
+Re-fire the event. Verify error message appears in Slack DM.
+
+- [ ] **Step 5: Clean up**
+
+```bash
+rm -rf ~/.kos/agent/jobs/test-echo
 ```
 
 ---
