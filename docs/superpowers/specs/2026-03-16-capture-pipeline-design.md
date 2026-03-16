@@ -83,8 +83,10 @@ All capture events include a `captureKey` field computed at emission time. This 
 
 New route: `POST /api/capture`
 
+Request and response bodies are validated with Zod schemas (following the pattern in `src/jobs/schema.ts` with `JobCreateSchema`). The capture event schemas in `src/inngest/client.ts` should also use Zod, consistent with the existing event definitions (`agentMessageReceived`, `agentReplyReady`, `agentJobTriggered`).
+
 ```typescript
-// Request body
+// Request body (Zod-validated)
 {
   urls?: string[]                 // one or more URLs to capture
   filePath?: string               // local file path (mutually exclusive with urls)
@@ -105,7 +107,7 @@ New route: `POST /api/capture`
 }
 ```
 
-The endpoint validates input, emits `agent.capture.requested` or `agent.capture.file.requested` events to Inngest for each URL/file, and returns immediately. Processing is async.
+The endpoint validates input via `CaptureRequestSchema.safeParse()`, emits `agent.capture.requested` or `agent.capture.file.requested` events to Inngest for each URL/file, and returns immediately. Processing is async. If some URLs in a batch fail validation, the endpoint rejects the entire batch with validation errors (fail-fast, no partial success).
 
 This follows the existing pattern: CLI → HTTP API → Inngest event. No auth required (localhost-bound, same as jobs API).
 
@@ -162,7 +164,9 @@ When `mode` is `"triage"` (default for URL captures):
 9. notify
 ```
 
-**Slack action handler:** A new Slack action handler (`capture_decision`) must be registered in `src/bolt/listeners/actions.ts`. When a triage button is clicked, it emits an `agent.capture.decision` event to Inngest with the `captureId` (function run ID) and the chosen action. This bridges Slack interactive buttons to the `step.waitForEvent()` call.
+**Slack action handler:** A new Slack action handler (`capture_decision`) must be registered in `src/bolt/listeners/actions.ts`. When a triage button is clicked, it emits an `agent.capture.decision` event to Inngest with the `captureId` (function run ID) and the chosen action. This bridges Slack interactive buttons to the `step.waitForEvent()` call. The handler needs access to the Inngest client — either pass it via the listener registration function (matching how `registerMessageListeners` receives it) or import directly.
+
+**Triage message lifecycle:** After any decision (user click or timeout), the original Slack triage message must be **updated** to reflect the outcome (e.g., "Timed out — quick-saved", "Full capture started", "Skipped"). This prevents stale buttons from remaining actionable. Use `chat.update` to replace the button blocks with a status line.
 
 #### Triage Slack Prompt Format
 
@@ -173,6 +177,13 @@ When `mode` is `"triage"` (default for URL captures):
    → Full capture (transcript + metadata)
    → Quick save (just link + metadata)
    → Skip
+```
+
+After decision:
+```
+📎 YouTube Video: "How I Built My Personal AI System"
+   Channel: Daniel Miessler · 45 min · 120K views
+   ✅ Full capture started
 ```
 
 ### Inngest Patterns Used
@@ -225,6 +236,13 @@ All captures post a notification to a configured Slack channel. Configured via `
 
 **Configuration:** Add `notifyChannel` to the `ChannelsConfig` interface in `src/lib/channels.ts` and extend `updateConfig` to accept it. If `notifyChannel` is not configured, notifications are skipped (no default assumed — must be explicitly set during setup).
 
+**CLI configuration:** A `kos config` command is needed for setting `notifyChannel` and other config values. This command should support at minimum:
+- `kos config get <key>` — read a config value
+- `kos config set <key> <value>` — update a config value (PATCHes `/api/config`)
+- `kos config list` — show all current config
+
+This is a broader need beyond capture (display mode, allowed users, scan roots all benefit from it) and should be implemented as part of the capture pipeline work since notifications depend on it.
+
 ```json
 // channels.json addition
 {
@@ -267,7 +285,22 @@ The CLI command POSTs to `POST /api/capture` with the parsed URLs and mode flag.
 
 Notes are **written programmatically** by the capture pipeline — not via Obsidian's template insertion system (which only supports `{{title}}`, `{{date}}`, `{{time}}`). The note structure is defined in code.
 
-**Source note frontmatter:**
+Each content type has its own note structure with type-specific metadata. All source types share a common base of fields but differ in what additional metadata they carry.
+
+### Common Fields (all source types)
+
+```yaml
+categories:
+  - "[[Sources]]"
+url: "https://..."
+created: "[[03-16-2026]]"          # MM-DD-YYYY, zero-padded, backlinked
+topics: []
+status: raw                         # raw → processing → done
+source_type: article                # article, youtube-video, hacker-news, twitter
+capture_mode: full                  # full or quick
+```
+
+### Article Notes
 
 ```yaml
 ---
@@ -275,39 +308,143 @@ categories:
   - "[[Sources]]"
 author: "[[Author Name]]"          # or [] if unknown
 url: "https://..."
-created: "[[03-16-2026]]"          # MM-DD-YYYY, zero-padded, backlinked
+created: "[[03-16-2026]]"
 published:                          # original publish date if available
 topics: []
 status: raw
-source_type: article                # article, youtube-video, hacker-news, twitter
-capture_mode: full                  # full or quick
-duration:                           # youtube only, omitted for other types
-channel: "[[Channel Name]]"        # youtube only, omitted for other types
+source_type: article
+capture_mode: full
 ---
-
-# Note Title
-
-(content below)
 ```
 
-**Content by type and mode:**
+| Quick | Full |
+|-------|------|
+| Meta description | Full article markdown |
 
-| Type | Quick | Full |
-|------|-------|------|
-| **article** | Meta description | Full article markdown |
-| **youtube-video** | Video description | Full transcript with timestamps |
-| **youtube-channel** | N/A (uses YouTuber note format) | N/A (uses YouTuber note format) |
-| **hacker-news** | Title + points + comment count | Article content + top comments |
-| **twitter** | Tweet text preview | Full thread text |
+### YouTube Video Notes
 
-**YouTube channel notes** use the existing YouTuber Template format with `categories: ["[[YouTubers]]"]` and a `youtube_url` field. Individual videos captured via fan-out are Sources that backlink to the channel note via the `channel` field.
+```yaml
+---
+categories:
+  - "[[Sources]]"
+author: "[[Channel Name]]"
+url: "https://youtube.com/watch?v=..."
+created: "[[03-16-2026]]"
+published:                          # video publish date
+topics: []
+status: raw
+source_type: youtube-video
+capture_mode: full
+channel: "[[Channel Name]]"        # backlinks to YouTuber note
+duration:                           # e.g., "45:32"
+views:                              # view count at capture time
+---
+```
 
-**Key conventions:**
+| Quick | Full |
+|-------|------|
+| Video description | Full transcript with timestamps |
+
+### YouTube Channel Notes
+
+Uses the **existing YouTuber Template** format:
+
+```yaml
+---
+categories:
+  - "[[YouTubers]]"
+youtube_url: "https://youtube.com/@channel"
+---
+
+## Videos
+
+![[Sources.base#Author]]
+```
+
+The `Sources.base#Author` embed automatically shows all captured videos by this channel (via the `author` field matching). Fan-out creates individual YouTube Video notes for up to 10 recent videos.
+
+### Hacker News Notes
+
+```yaml
+---
+categories:
+  - "[[Sources]]"
+author: "[[Author Name]]"          # article author, not HN submitter
+url: "https://..."                  # the linked article URL
+created: "[[03-16-2026]]"
+topics: []
+status: raw
+source_type: hacker-news
+capture_mode: full
+hn_url: "https://news.ycombinator.com/item?id=..."
+hn_points:                          # points at capture time
+hn_comments:                        # comment count at capture time
+---
+```
+
+| Quick | Full |
+|-------|------|
+| Title + points + comment count | Article content + top HN comments |
+
+### Twitter/X Notes
+
+```yaml
+---
+categories:
+  - "[[Sources]]"
+author: "[[Display Name]]"
+url: "https://x.com/handle/status/..."
+created: "[[03-16-2026]]"
+topics: []
+status: raw
+source_type: twitter
+capture_mode: full
+handle: "@handle"
+posted:                             # tweet timestamp
+---
+```
+
+| Quick | Full |
+|-------|------|
+| Tweet text preview | Full tweet/thread text |
+
+### File Capture Notes
+
+```yaml
+---
+categories:
+  - "[[Sources]]"
+url:                                # empty — local file, no URL
+created: "[[03-16-2026]]"
+topics: []
+status: raw
+source_type: file
+capture_mode: full
+file_path: "/original/path/to/file"
+---
+```
+
+Always full capture. Content is the file contents directly.
+
+### Existing Templates Reference
+
+The vault already has templates that inform this structure:
+- **Clipping Template** — `[[Clippings]]` category, basic `author`/`url`/`created`/`topics`/`status`
+- **Post Template** — `[[Posts]]` category, adds `published`/`status`
+- **Email Template** — `[[Emails]]` category, adds `org`/`people`
+- **YouTuber Template** — `[[YouTubers]]` category, has `youtube_url` + Sources.base embed
+
+The capture pipeline's note structures are designed to be compatible with these existing conventions while adding capture-specific metadata (`source_type`, `capture_mode`, type-specific fields).
+
+### Key Conventions
+
 - `categories: ["[[Sources]]"]` — matches Sources.base filter, appears in "To Process" view when `status: raw`
+- YouTube channel notes use `[[YouTubers]]` category (existing template)
 - Date format: `[[MM-DD-YYYY]]` zero-padded (matches vault convention from `{{date:MM-DD-YYYY}}`)
 - Author field uses wikilinks: `"[[Author Name]]"` to auto-create people backlinks
-- Conditional fields (duration, channel) are omitted entirely when not applicable, not left empty
+- Type-specific fields are only present on their respective note types, not left empty on other types
 - Note filename: the page title, sanitized for filesystem (no slashes, colons, etc.)
+- Idempotency: if a note with the same `url` already exists in `sources/`, update it rather than creating a duplicate
 
 ## Future Extension Points
 
