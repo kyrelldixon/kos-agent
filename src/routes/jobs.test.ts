@@ -43,6 +43,33 @@ describe("jobs API", () => {
     expect(existsSync(join(testDir, "dns-check", "job.json"))).toBe(true);
   });
 
+  test("POST /api/jobs writes inline script content to file", async () => {
+    const res = await app.request("/api/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "dns-check-inline",
+        schedule: { type: "periodic", seconds: 3600 },
+        execution: {
+          type: "script",
+          script: "#!/bin/bash\ndig kyrelldixon.com NS +short",
+        },
+        destination: { chatId: "D0ABC123" },
+      }),
+    });
+    expect(res.status).toBe(201);
+    const scriptPath = join(testDir, "dns-check-inline", "script");
+    expect(existsSync(scriptPath)).toBe(true);
+    const content = await readFile(scriptPath, "utf-8");
+    expect(content).toContain("#!/bin/bash");
+    expect(content).toContain("dig kyrelldixon.com");
+    // Script content should not be stored in job.json
+    const config = JSON.parse(
+      await readFile(join(testDir, "dns-check-inline", "job.json"), "utf-8"),
+    );
+    expect(config.execution.script).toBeUndefined();
+  });
+
   test("POST /api/jobs returns 409 if job exists", async () => {
     await mkdir(join(testDir, "dns-check"));
     await writeFile(join(testDir, "dns-check", "job.json"), "{}");

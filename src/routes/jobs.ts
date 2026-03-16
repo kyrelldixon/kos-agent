@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { type JobConfig, JobCreateSchema } from "@/jobs/schema";
@@ -48,6 +48,16 @@ export function createJobsRoutes(options?: JobsRoutesOptions): Hono {
     };
 
     await mkdir(jobDir, { recursive: true });
+
+    // Write script file if provided inline
+    if (config.execution.type === "script" && config.execution.script) {
+      const scriptContent = config.execution.script;
+      await writeFile(join(jobDir, "script"), scriptContent);
+      await chmod(join(jobDir, "script"), 0o755);
+      // Remove script content from stored config — the file is the source of truth
+      config.execution = { type: "script" };
+    }
+
     await writeFile(join(jobDir, "job.json"), JSON.stringify(config, null, 2));
 
     if (!skipSync) {

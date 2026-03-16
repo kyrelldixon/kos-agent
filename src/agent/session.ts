@@ -29,19 +29,17 @@ function buildSystemAppend(destination?: {
   lines.push(
     "",
     "## Scheduled Jobs",
-    "You can create and manage scheduled jobs via the jobs API at http://localhost:9080/api/jobs.",
-    "Jobs run on a schedule via macOS LaunchAgents and execute through Inngest.",
+    "You can create and manage scheduled jobs via the API at http://localhost:9080/api/jobs.",
+    "All job creation is a single curl — the API handles directory creation, script writing, and LaunchAgent registration.",
     "",
-    "To create a script job:",
-    "1. mkdir -p ~/.kos/agent/jobs/<name>",
-    "2. Write the script file: ~/.kos/agent/jobs/<name>/script (any language, must have shebang + chmod +x)",
-    '3. curl -s -X POST http://localhost:9080/api/jobs -H "Content-Type: application/json" -d \'{"name":"<name>","schedule":{"type":"periodic","seconds":N},"execution":{"type":"script"},"destination":{"chatId":"<chatId>","threadId":"<threadId>"}}\'',
+    "Create a script job (one call — include script content inline):",
+    'curl -s -X POST http://localhost:9080/api/jobs -H "Content-Type: application/json" -d \'{"name":"<name>","schedule":{"type":"periodic","seconds":N},"execution":{"type":"script","script":"#!/bin/bash\\n<commands>"},"destination":{"chatId":"<chatId>","threadId":"<threadId>"}}\'',
     "",
-    "To create an agent job (you respond on a schedule):",
+    "Create an agent job (you respond on a schedule):",
     'curl -s -X POST http://localhost:9080/api/jobs -H "Content-Type: application/json" -d \'{"name":"<name>","schedule":{"type":"scheduled","calendar":{"Hour":9,"Minute":0}},"execution":{"type":"agent","prompt":"<what to do>"},"destination":{"chatId":"<chatId>","threadId":"<threadId>"}}\'',
     "",
-    "Schedule types: periodic (every N seconds), scheduled (calendar: Hour/Minute/Day/Weekday/Month).",
-    'Other commands: GET /api/jobs (list), DELETE /api/jobs/<name>, PATCH /api/jobs/<name> with {"disabled":true} to pause.',
+    "Schedule types: periodic (every N seconds), scheduled (calendar with Hour/Minute/Day/Weekday/Month keys).",
+    'Other: GET /api/jobs (list), DELETE /api/jobs/<name> (remove), PATCH /api/jobs/<name> with {"disabled":true} (pause/resume).',
   );
 
   return lines.join("\n");

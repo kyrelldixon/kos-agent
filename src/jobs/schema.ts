@@ -26,7 +26,7 @@ export const JobScheduleSchema = z.discriminatedUnion("type", [
 ]);
 
 export const JobExecutionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("script") }),
+  z.object({ type: z.literal("script"), script: z.string().min(1).optional() }),
   z.object({ type: z.literal("agent"), prompt: z.string().min(1) }),
 ]);
 
