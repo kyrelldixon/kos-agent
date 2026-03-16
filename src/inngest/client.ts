@@ -1,5 +1,10 @@
 import { eventType, Inngest } from "inngest";
 import { z } from "zod";
+import {
+  CaptureDecisionEventSchema,
+  CaptureEventInngestSchema,
+  CaptureFileEventSchema,
+} from "@/capture/schema";
 
 export const inngest = new Inngest({ id: "agent-system" });
 
@@ -44,3 +49,25 @@ export const agentJobTriggered = eventType("agent.job.triggered", {
 });
 
 export type AgentJobData = z.infer<typeof agentJobTriggered.schema>;
+
+export const agentCaptureRequested = eventType("agent.capture.requested", {
+  schema: CaptureEventInngestSchema,
+});
+export type AgentCaptureData = z.infer<typeof agentCaptureRequested.schema>;
+
+export const agentCaptureFileRequested = eventType(
+  "agent.capture.file.requested",
+  {
+    schema: CaptureFileEventSchema,
+  },
+);
+export type AgentCaptureFileData = z.infer<
+  typeof agentCaptureFileRequested.schema
+>;
+
+export const agentCaptureDecision = eventType("agent.capture.decision", {
+  schema: CaptureDecisionEventSchema,
+});
+export type AgentCaptureDecisionData = z.infer<
+  typeof agentCaptureDecision.schema
+>;

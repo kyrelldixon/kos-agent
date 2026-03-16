@@ -36,6 +36,19 @@ export const CaptureEventSchema = z.object({
 });
 export type CaptureEventData = z.infer<typeof CaptureEventSchema>;
 
+// Inngest event schemas must have matching input/output types (no transforms).
+// This variant uses optional() instead of default() for the mode field.
+export const CaptureEventInngestSchema = z.object({
+  captureKey: z.string(),
+  url: z.string().url(),
+  type: ContentTypeEnum.optional(),
+  source: CaptureSourceEnum,
+  destination: CaptureDestinationSchema.optional(),
+  batchId: z.string().optional(),
+  parentCaptureId: z.string().optional(),
+  mode: CaptureModeEnum.optional(),
+});
+
 export const CaptureFileEventSchema = z.object({
   captureKey: z.string(),
   filePath: z.string(),
