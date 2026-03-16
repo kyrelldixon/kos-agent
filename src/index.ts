@@ -12,12 +12,15 @@ import {
   acknowledgeMessage,
   handleFailure,
   handleMessage,
+  handleScheduledJob,
   sendReply,
 } from "@/inngest/functions/index";
+import { syncAllJobs } from "@/jobs/sync";
 import { getOrCreateDeploySecret } from "@/lib/deploy/secret";
 import { cfAccessMiddleware } from "@/lib/middleware/access";
 import { createConfigRoutes } from "@/routes/config";
 import { createHooksRoutes } from "@/routes/hooks";
+import { createJobsRoutes } from "@/routes/jobs";
 import { createWorkspacesRoutes } from "@/routes/workspaces";
 
 // Must delete before Agent SDK query() — SDK detects Claude Code env and changes behavior.
@@ -26,9 +29,25 @@ delete process.env.CLAUDECODE;
 // Ensure data directories exist
 const dataDir = join(homedir(), ".kos/agent");
 await mkdir(join(dataDir, "sessions"), { recursive: true });
+await mkdir(join(dataDir, "jobs"), { recursive: true });
+await mkdir(join(dataDir, "logs"), { recursive: true });
+
+// Sync LaunchAgents on startup
+const syncReport = await syncAllJobs();
+if (syncReport.synced.length || syncReport.removed.length) {
+  console.log(
+    `[jobs] Synced: ${syncReport.synced.length}, removed: ${syncReport.removed.length}, unchanged: ${syncReport.unchanged.length}`,
+  );
+}
 
 // All Inngest functions registered
-const functions = [acknowledgeMessage, handleFailure, handleMessage, sendReply];
+const functions = [
+  acknowledgeMessage,
+  handleFailure,
+  handleMessage,
+  handleScheduledJob,
+  sendReply,
+];
 
 const hono = new Hono();
 
@@ -72,9 +91,12 @@ if (cfClientId) {
   hono.use("/api/config/*", accessMw);
   hono.use("/api/workspaces", accessMw);
   hono.use("/api/workspaces/*", accessMw);
+  hono.use("/api/jobs", accessMw);
+  hono.use("/api/jobs/*", accessMw);
 }
 hono.route("/api/config", createConfigRoutes());
 hono.route("/api/workspaces", createWorkspacesRoutes());
+hono.route("/api/jobs", createJobsRoutes());
 
 // Start HTTP server — bind to localhost only (Cloudflare Tunnel connects locally)
 Bun.serve({
