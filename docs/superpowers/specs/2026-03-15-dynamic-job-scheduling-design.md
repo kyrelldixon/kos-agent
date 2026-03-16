@@ -532,7 +532,7 @@ LaunchAgents:
 
 ## Reference
 
-- **qbot code:** LaunchAgent management patterns (plist generation, launchctl bootstrap/bootout, sync system, schedule parsing)
+- **qbot code:** LaunchAgent management patterns (plist generation, launchctl bootstrap/bootout, sync system, schedule parsing) — https://gist.github.com/jlongster/99c15e40c7978404bb97b5171df0e645
 - **joelclaw:** Multi-layer scheduling architecture (Dkron + Inngest heartbeat + Restate DAGs), CLI event sending (`joelclaw send`)
 - **Utah:** Session management (thread = session), heartbeat for memory maintenance
 - **Existing kos-agent:** Inngest function patterns, Slack posting, session resume, CF Access middleware
