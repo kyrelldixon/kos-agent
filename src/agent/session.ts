@@ -80,7 +80,7 @@ export async function* streamAgentSession(
         preset: "claude_code",
         append: buildSystemAppend(input.destination),
       },
-      maxTurns: 10,
+      maxTurns: 25,
     },
   });
 
