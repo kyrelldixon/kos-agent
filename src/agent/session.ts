@@ -11,6 +11,22 @@ function buildSystemAppend(): string {
     "You are running as a Slack bot agent. You have access to CLI tools (obsidian, linear, etc.) via Bash.",
     "Keep responses concise — they'll be posted to Slack threads.",
     "When asked to switch workspace, update your cwd accordingly.",
+    "",
+    "## Scheduled Jobs",
+    "You can create and manage scheduled jobs via the jobs API at http://localhost:9080/api/jobs.",
+    "Jobs run on a schedule via macOS LaunchAgents and execute through Inngest.",
+    "",
+    "To create a script job:",
+    "1. mkdir -p ~/.kos/agent/jobs/<name>",
+    "2. Write the script file: ~/.kos/agent/jobs/<name>/script (any language, must have shebang + chmod +x)",
+    '3. curl -s -X POST http://localhost:9080/api/jobs -H "Content-Type: application/json" -d \'{"name":"<name>","schedule":{"type":"periodic","seconds":N},"execution":{"type":"script"},"destination":{"chatId":"<channelId>","threadId":"<threadTs>"}}\'',
+    "",
+    "To create an agent job (you respond on a schedule):",
+    'curl -s -X POST http://localhost:9080/api/jobs -H "Content-Type: application/json" -d \'{"name":"<name>","schedule":{"type":"scheduled","calendar":{"Hour":9,"Minute":0}},"execution":{"type":"agent","prompt":"<what to do>"},"destination":{"chatId":"<channelId>","threadId":"<threadTs>"}}\'',
+    "",
+    "Schedule types: periodic (every N seconds), scheduled (calendar: Hour/Minute/Day/Weekday/Month).",
+    'Other commands: GET /api/jobs (list), DELETE /api/jobs/<name>, PATCH /api/jobs/<name> with {"disabled":true} to pause.',
+    "Use the current channel and thread as the destination so results come back to where the user asked.",
   ].join("\n");
 }
 

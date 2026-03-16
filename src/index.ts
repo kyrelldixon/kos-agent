@@ -91,8 +91,8 @@ if (cfClientId) {
   hono.use("/api/config/*", accessMw);
   hono.use("/api/workspaces", accessMw);
   hono.use("/api/workspaces/*", accessMw);
-  hono.use("/api/jobs", accessMw);
-  hono.use("/api/jobs/*", accessMw);
+  // Jobs API: no CF Access — agent calls from localhost, server already bound to 127.0.0.1
+  // CF Access can be added when CLI remote access is built
 }
 hono.route("/api/config", createConfigRoutes());
 hono.route("/api/workspaces", createWorkspacesRoutes());
