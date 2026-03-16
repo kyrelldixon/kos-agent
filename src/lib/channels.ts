@@ -16,6 +16,7 @@ export interface ChannelsConfig {
   channels: Record<string, ChannelData>;
   scanRoots: string[];
   globalDefault: string;
+  notifyChannel?: string;
 }
 
 const DEFAULT_CONFIG: ChannelsConfig = {
@@ -82,7 +83,11 @@ export async function updateConfig(
   updates: Partial<
     Pick<
       ChannelsConfig,
-      "displayMode" | "allowedUsers" | "globalDefault" | "scanRoots"
+      | "displayMode"
+      | "allowedUsers"
+      | "globalDefault"
+      | "scanRoots"
+      | "notifyChannel"
     >
   >,
 ): Promise<ChannelsConfig> {
@@ -94,8 +99,15 @@ export async function updateConfig(
   if (updates.globalDefault !== undefined)
     config.globalDefault = updates.globalDefault;
   if (updates.scanRoots !== undefined) config.scanRoots = updates.scanRoots;
+  if (updates.notifyChannel !== undefined)
+    config.notifyChannel = updates.notifyChannel;
   await Bun.write(CHANNELS_FILE, JSON.stringify(config, null, 2));
   return config;
+}
+
+export async function getNotifyChannel(): Promise<string | undefined> {
+  const config = await loadConfig();
+  return config.notifyChannel;
 }
 
 export async function scanWorkspaces(): Promise<
