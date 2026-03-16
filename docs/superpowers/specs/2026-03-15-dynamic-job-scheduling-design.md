@@ -3,7 +3,7 @@
 **Goal:** Give the kos-agent the ability to create, manage, and execute scheduled jobs at runtime. Jobs run on macOS LaunchAgents (OS-level scheduling) and execute through Inngest (durable execution with retries, dashboard visibility, and error handling).
 
 **Spec:** This document
-**Plan:** TBD (created after spec approval)
+**Plan:** `docs/superpowers/plans/2026-03-15-dynamic-job-scheduling.md`
 **Linear:** KYR-120
 
 ---
