@@ -1,3 +1,4 @@
+import type { Block } from "@slack/types";
 import type { CaptureMode, ContentType } from "./schema";
 
 interface NotificationInput {
@@ -33,8 +34,7 @@ interface TriageInput {
   description: string;
 }
 
-export interface SlackBlock {
-  type: string;
+export interface SlackBlock extends Block {
   [key: string]: unknown;
 }
 
