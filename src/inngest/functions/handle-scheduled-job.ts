@@ -68,7 +68,7 @@ export const handleScheduledJob = inngest.createFunction(
         }
 
         const output = await step.run("execute-script", async () => {
-          const proc = Bun.spawn(["./script"], {
+          const proc = Bun.spawn(["bash", scriptPath], {
             cwd: join(DEFAULT_JOBS_DIR, jobName),
             stdout: "pipe",
             stderr: "pipe",
