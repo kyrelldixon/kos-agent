@@ -7,5 +7,5 @@ import { registerOnboardingListeners } from "@/bolt/listeners/onboarding";
 export function registerListeners(app: App, inngest: Inngest) {
   registerMessageListeners(app, inngest);
   registerOnboardingListeners(app);
-  registerActionListeners(app);
+  registerActionListeners(app, inngest);
 }
