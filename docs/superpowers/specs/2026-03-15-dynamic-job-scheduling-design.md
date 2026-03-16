@@ -533,6 +533,6 @@ LaunchAgents:
 ## Reference
 
 - **qbot code:** LaunchAgent management patterns (plist generation, launchctl bootstrap/bootout, sync system, schedule parsing) — https://gist.github.com/jlongster/99c15e40c7978404bb97b5171df0e645
-- **joelclaw:** Multi-layer scheduling architecture (Dkron + Inngest heartbeat + Restate DAGs), CLI event sending (`joelclaw send`)
-- **Utah:** Session management (thread = session), heartbeat for memory maintenance
-- **Existing kos-agent:** Inngest function patterns, Slack posting, session resume, CF Access middleware
+- **joelclaw** (`~/projects/joelclaw/`): Multi-layer scheduling architecture (Dkron + Inngest heartbeat + Restate DAGs), CLI event sending (`joelclaw send`). Key files: `packages/cli/src/commands/send.ts`, `packages/system-bus/src/inngest/functions/heartbeat.ts`, `packages/restate/src/pipelines.ts`
+- **Utah** (`~/projects/utah/`): Session management (thread = session), heartbeat for memory maintenance. Key files: `src/lib/session.ts`, `src/functions/heartbeat.ts`, `src/functions/message.ts`, `src/functions/send-reply.ts`
+- **kos-agent** (`~/projects/kos-agent/`): Inngest function patterns, Slack posting, session resume, CF Access middleware. Key files: `src/inngest/client.ts`, `src/inngest/functions/`, `src/routes/`, `src/lib/sessions.ts`, `ops/`
