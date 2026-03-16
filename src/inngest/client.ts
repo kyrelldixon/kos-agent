@@ -36,3 +36,11 @@ export const agentReplyReady = eventType("agent.reply.ready", {
 });
 
 export type AgentReplyData = z.infer<typeof agentReplyReady.schema>;
+
+export const agentJobTriggered = eventType("agent.job.triggered", {
+  schema: z.object({
+    job: z.string(),
+  }),
+});
+
+export type AgentJobData = z.infer<typeof agentJobTriggered.schema>;
