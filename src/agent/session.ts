@@ -4,13 +4,29 @@ export interface SessionInput {
   message: string;
   sessionId?: string;
   workspace: string;
+  destination?: { chatId: string; threadId?: string };
 }
 
-function buildSystemAppend(): string {
-  return [
+function buildSystemAppend(destination?: {
+  chatId: string;
+  threadId?: string;
+}): string {
+  const lines = [
     "You are running as a Slack bot agent. You have access to CLI tools (obsidian, linear, etc.) via Bash.",
     "Keep responses concise — they'll be posted to Slack threads.",
     "When asked to switch workspace, update your cwd accordingly.",
+  ];
+
+  if (destination) {
+    lines.push(
+      "",
+      "## Slack Context",
+      `Your current Slack context — chatId: ${destination.chatId}${destination.threadId ? `, threadId: ${destination.threadId}` : ""}.`,
+      "Use these values when creating jobs so results come back to this conversation.",
+    );
+  }
+
+  lines.push(
     "",
     "## Scheduled Jobs",
     "You can create and manage scheduled jobs via the jobs API at http://localhost:9080/api/jobs.",
@@ -19,15 +35,16 @@ function buildSystemAppend(): string {
     "To create a script job:",
     "1. mkdir -p ~/.kos/agent/jobs/<name>",
     "2. Write the script file: ~/.kos/agent/jobs/<name>/script (any language, must have shebang + chmod +x)",
-    '3. curl -s -X POST http://localhost:9080/api/jobs -H "Content-Type: application/json" -d \'{"name":"<name>","schedule":{"type":"periodic","seconds":N},"execution":{"type":"script"},"destination":{"chatId":"<channelId>","threadId":"<threadTs>"}}\'',
+    '3. curl -s -X POST http://localhost:9080/api/jobs -H "Content-Type: application/json" -d \'{"name":"<name>","schedule":{"type":"periodic","seconds":N},"execution":{"type":"script"},"destination":{"chatId":"<chatId>","threadId":"<threadId>"}}\'',
     "",
     "To create an agent job (you respond on a schedule):",
-    'curl -s -X POST http://localhost:9080/api/jobs -H "Content-Type: application/json" -d \'{"name":"<name>","schedule":{"type":"scheduled","calendar":{"Hour":9,"Minute":0}},"execution":{"type":"agent","prompt":"<what to do>"},"destination":{"chatId":"<channelId>","threadId":"<threadTs>"}}\'',
+    'curl -s -X POST http://localhost:9080/api/jobs -H "Content-Type: application/json" -d \'{"name":"<name>","schedule":{"type":"scheduled","calendar":{"Hour":9,"Minute":0}},"execution":{"type":"agent","prompt":"<what to do>"},"destination":{"chatId":"<chatId>","threadId":"<threadId>"}}\'',
     "",
     "Schedule types: periodic (every N seconds), scheduled (calendar: Hour/Minute/Day/Weekday/Month).",
     'Other commands: GET /api/jobs (list), DELETE /api/jobs/<name>, PATCH /api/jobs/<name> with {"disabled":true} to pause.',
-    "Use the current channel and thread as the destination so results come back to where the user asked.",
-  ].join("\n");
+  );
+
+  return lines.join("\n");
 }
 
 /** Stream Agent SDK messages. Caller iterates and handles each message. */
@@ -61,7 +78,7 @@ export async function* streamAgentSession(
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
-        append: buildSystemAppend(),
+        append: buildSystemAppend(input.destination),
       },
       maxTurns: 10,
     },

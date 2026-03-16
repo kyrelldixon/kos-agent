@@ -51,6 +51,7 @@ export const handleMessage = inngest.createFunction(
       message,
       sessionId,
       workspace,
+      destination,
     });
 
     for await (const msg of stream) {

@@ -125,6 +125,7 @@ export const handleScheduledJob = inngest.createFunction(
           message: prompt,
           sessionId,
           workspace,
+          destination,
         });
 
         for await (const msg of stream) {
