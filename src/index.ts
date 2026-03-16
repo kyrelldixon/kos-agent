@@ -10,6 +10,7 @@ import { registerListeners } from "@/bolt/listeners/index";
 import { inngest } from "@/inngest/client";
 import {
   acknowledgeMessage,
+  handleCapture,
   handleFailure,
   handleMessage,
   handleScheduledJob,
@@ -18,6 +19,7 @@ import {
 import { syncAllJobs } from "@/jobs/sync";
 import { getOrCreateDeploySecret } from "@/lib/deploy/secret";
 import { cfAccessMiddleware } from "@/lib/middleware/access";
+import { createCaptureRoutes } from "@/routes/capture";
 import { createConfigRoutes } from "@/routes/config";
 import { createHooksRoutes } from "@/routes/hooks";
 import { createJobsRoutes } from "@/routes/jobs";
@@ -31,6 +33,7 @@ const dataDir = join(homedir(), ".kos/agent");
 await mkdir(join(dataDir, "sessions"), { recursive: true });
 await mkdir(join(dataDir, "jobs"), { recursive: true });
 await mkdir(join(dataDir, "logs"), { recursive: true });
+await mkdir(join(dataDir, "captures"), { recursive: true });
 
 // Sync LaunchAgents on startup
 const syncReport = await syncAllJobs();
@@ -43,6 +46,7 @@ if (syncReport.synced.length || syncReport.removed.length) {
 // All Inngest functions registered
 const functions = [
   acknowledgeMessage,
+  handleCapture,
   handleFailure,
   handleMessage,
   handleScheduledJob,
@@ -91,12 +95,15 @@ if (cfClientId) {
   hono.use("/api/config/*", accessMw);
   hono.use("/api/workspaces", accessMw);
   hono.use("/api/workspaces/*", accessMw);
+  hono.use("/api/capture", accessMw);
+  hono.use("/api/capture/*", accessMw);
   // Jobs API: no CF Access — agent calls from localhost, server already bound to 127.0.0.1
   // CF Access can be added when CLI remote access is built
 }
 hono.route("/api/config", createConfigRoutes());
 hono.route("/api/workspaces", createWorkspacesRoutes());
 hono.route("/api/jobs", createJobsRoutes());
+hono.route("/api/capture", createCaptureRoutes(inngest));
 
 // Start HTTP server — bind to localhost only (Cloudflare Tunnel connects locally)
 Bun.serve({
