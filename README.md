@@ -10,6 +10,8 @@ Runs on a Mac Mini, accessible via Slack from any device. API endpoints for CLI 
 - [Inngest CLI](https://www.inngest.com/docs/local-development) — `brew install inngest/tap/inngest`
 - [1Password](https://1password.com) desktop app with CLI integration enabled
 - [varlock](https://varlock.dev) — secrets resolved from 1Password via `.env.schema`
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — `brew install yt-dlp` (for YouTube capture)
+- [Obsidian](https://obsidian.md) — must be running for vault note creation
 
 ## Dev Workflow
 
@@ -33,6 +35,20 @@ bun dev
 | `PATCH` | `/api/config` | CF Access | Update config |
 | `GET` | `/api/workspaces` | CF Access | List available workspaces |
 | `POST` | `/api/hooks/deploy` | HMAC | GitHub webhook deploy |
+
+## Capture Pipeline
+
+Captures URLs and content into the Obsidian vault as source notes. Supports articles, YouTube videos, Hacker News posts, GitHub repos, and local files.
+
+```bash
+kos capture <url> --full     # Full content extraction
+kos capture <url> --quick    # Metadata only
+kos capture <url>            # Triage mode (Slack buttons)
+```
+
+Three-tier extraction for articles: Jina Reader → Readability (local) → CF Browser Rendering. Each tier is an independent Inngest function with its own retry/throttle config.
+
+See `.claude/skills/capture-pipeline/SKILL.md` for full operational docs.
 
 ## Architecture
 
