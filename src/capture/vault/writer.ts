@@ -1,9 +1,14 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { sanitizeFilename } from "./templates";
 
-const VAULT_DIR =
-  process.env.VAULT_PATH ?? `${process.env.HOME}/kyrell-os-vault`;
+function resolveVaultDir(): string {
+  const raw = process.env.VAULT_PATH ?? "~/kyrell-os-vault";
+  return raw.startsWith("~/") ? join(homedir(), raw.slice(2)) : raw;
+}
+
+const VAULT_DIR = resolveVaultDir();
 
 export async function writeVaultNote(
   vaultDir: string = VAULT_DIR,
