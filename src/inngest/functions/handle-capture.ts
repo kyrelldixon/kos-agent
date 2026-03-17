@@ -1,9 +1,7 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { detectContentType } from "@/capture/detect-type";
-import { extractArticleContent } from "@/capture/extract/article";
 import { extractFileContent } from "@/capture/extract/file";
-import { extractHNContent } from "@/capture/extract/hacker-news";
 import type { PageMetadata } from "@/capture/extract/metadata";
 import { extractMetadata } from "@/capture/extract/metadata";
 import { checkContentQuality } from "@/capture/extract/quality";
@@ -27,6 +25,9 @@ import {
   agentCaptureRequested,
   inngest,
 } from "../client";
+import { cfBrowserExtraction } from "./extract-cf-browser";
+import { jinaExtraction } from "./extract-jina";
+import { localExtraction } from "./extract-local";
 
 const CAPTURES_DIR = join(process.env.HOME ?? "", ".kos", "agent", "captures");
 
@@ -158,8 +159,8 @@ export const handleCapture = inngest.createFunction(
       mkdir(captureDir, { recursive: true }),
     );
 
-    // Step 4: Extract metadata and content in parallel
-    const metadataPromise = step.run(
+    // Step 4: Extract metadata (content extraction now uses step.invoke, can't parallelize)
+    const metadata = await step.run(
       "extract-metadata",
       async (): Promise<PageMetadata> => {
         if (isFile) {
@@ -173,52 +174,105 @@ export const handleCapture = inngest.createFunction(
       },
     );
 
-    const contentPromise = step.run("extract-content", async () => {
-      if (resolvedMode === "quick") return "";
-      if (isFile) {
-        if (!filePath) throw new Error("filePath required for file captures");
-        return extractFileContent(filePath);
+    // Step 5: Content extraction — tiered for articles, direct for other types
+    let content = "";
+    let extractionMethod = "none";
+
+    if (resolvedMode === "quick") {
+      content = "";
+    } else if (isFile) {
+      if (!filePath) throw new Error("filePath required for file captures");
+      content = await step.run("extract-file-content", () =>
+        extractFileContent(filePath),
+      );
+      extractionMethod = "file";
+    } else if (!url) {
+      throw new Error("URL required for non-file captures");
+    } else if (type === "youtube-video") {
+      content = await step.run("extract-youtube-transcript", () =>
+        extractYouTubeTranscript(url),
+      );
+      extractionMethod = "youtube";
+    } else if (type === "youtube-channel") {
+      const videos = await step.run("list-channel-videos", () =>
+        listChannelVideos(url),
+      );
+      content = JSON.stringify(videos);
+      extractionMethod = "youtube";
+    } else if (type === "twitter") {
+      content = "";
+    } else {
+      // Article, HN, or unknown — use tiered extraction
+      const extractUrl =
+        type === "hacker-news"
+          ? await step.run("get-hn-article-url", async () => {
+              const itemId = new URL(url).searchParams.get("id");
+              if (!itemId) return url;
+              const res = await fetch(
+                `https://hn.algolia.com/api/v1/items/${itemId}`,
+              );
+              const data: unknown = await res.json();
+              const parsed =
+                typeof data === "object" && data !== null && "url" in data
+                  ? data
+                  : null;
+              return (
+                (parsed && typeof parsed.url === "string"
+                  ? parsed.url
+                  : undefined) ?? url
+              );
+            })
+          : url;
+
+      // Tier 1: Jina
+      try {
+        const result = await step.invoke("tier-1-jina", {
+          function: jinaExtraction,
+          data: { url: extractUrl },
+          timeout: "30s",
+        });
+        content = result.content;
+        extractionMethod = "jina";
+      } catch {}
+
+      // Tier 2: Local (if Jina failed or low quality)
+      if (!content || !checkContentQuality(content)) {
+        content = "";
+        try {
+          const result = await step.invoke("tier-2-local", {
+            function: localExtraction,
+            data: { url: extractUrl },
+            timeout: "30s",
+          });
+          content = result.content;
+          extractionMethod = "local";
+        } catch {}
       }
-      if (!url) throw new Error("URL required for non-file captures");
 
-      switch (type) {
-        case "article":
-          return extractArticleContent(url);
-        case "youtube-video":
-          return extractYouTubeTranscript(url);
-        case "youtube-channel": {
-          const videos = await listChannelVideos(url);
-          return JSON.stringify(videos);
-        }
-        case "hacker-news": {
-          const hn = await extractHNContent(url);
-          const contentPath = join(captureDir, "content.json");
-          await Bun.write(contentPath, JSON.stringify(hn));
-          return contentPath;
-        }
-        case "twitter":
-          return "";
-        default:
-          return extractArticleContent(url);
+      // Tier 3: CF Browser (if local failed AND keys configured)
+      if (
+        (!content || !checkContentQuality(content)) &&
+        process.env.CF_ACCOUNT_ID &&
+        process.env.CF_API_TOKEN
+      ) {
+        content = "";
+        try {
+          const result = await step.invoke("tier-3-cf-browser", {
+            function: cfBrowserExtraction,
+            data: { url: extractUrl },
+            timeout: "60s",
+          });
+          content = result.content;
+          extractionMethod = "cf-browser";
+        } catch {}
       }
-    });
-
-    const [metadata, rawContent] = await Promise.all([
-      metadataPromise,
-      contentPromise,
-    ]);
-
-    // Step 5: Quality check (skip for quick mode, twitter, file)
-    let content = rawContent;
-    if (resolvedMode === "full" && type !== "twitter" && type !== "file") {
-      await step.run("check-quality", () => {
-        const qualityOk = checkContentQuality(content);
-        if (!qualityOk) {
-          // TODO: agent-browser fallback integration
-        }
-        return qualityOk;
-      });
     }
+
+    const extractionFailed =
+      resolvedMode === "full" &&
+      !content &&
+      type !== "twitter" &&
+      type !== "file";
 
     // Step 6: YouTube channel fan-out
     if (type === "youtube-channel" && resolvedMode === "full" && content) {
@@ -314,47 +368,52 @@ export const handleCapture = inngest.createFunction(
       await rm(captureDir, { recursive: true, force: true }).catch(() => {});
     });
 
-    // Step 10: Notify via Slack
-    await step.run("notify", async () => {
-      const notifyChannel = await getNotifyChannel();
-      if (!notifyChannel) return;
+    // Step 10: Notify via Slack (only for CLI-triggered captures; agent handles its own)
+    const source = isCaptureEvent(event) ? event.data.source : "cli";
+    if (source === "cli") {
+      await step.run("notify", async () => {
+        const notifyChannel = await getNotifyChannel();
+        if (!notifyChannel) return;
 
-      const msg = buildNotificationMessage({
-        title: metadata.title ?? url ?? filePath ?? "Untitled",
-        url,
-        notePath,
-        description: metadata.description ?? "",
-      });
+        const msg = buildNotificationMessage({
+          title: metadata.title ?? url ?? filePath ?? "Untitled",
+          url,
+          notePath,
+          description: metadata.description ?? "",
+          failed: extractionFailed,
+        });
 
-      await slack.chat
-        .postMessage({
-          channel: notifyChannel,
-          text: msg,
-        })
-        .catch(() => {});
-
-      if (
-        destination &&
-        "chatId" in destination &&
-        "threadId" in destination &&
-        destination.threadId
-      ) {
         await slack.chat
           .postMessage({
-            channel: destination.chatId,
-            thread_ts: destination.threadId,
+            channel: notifyChannel,
             text: msg,
           })
           .catch(() => {});
-      }
-    });
+
+        if (
+          destination &&
+          "chatId" in destination &&
+          "threadId" in destination &&
+          destination.threadId
+        ) {
+          await slack.chat
+            .postMessage({
+              channel: destination.chatId,
+              thread_ts: destination.threadId,
+              text: msg,
+            })
+            .catch(() => {});
+        }
+      });
+    }
 
     return {
-      status: "captured",
+      status: extractionFailed ? "extraction-failed" : "captured",
       type,
       mode: resolvedMode,
       url: url ?? filePath,
       notePath,
+      extractionMethod,
     };
   },
 );
