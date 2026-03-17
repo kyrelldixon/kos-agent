@@ -2,6 +2,12 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { detectContentType } from "@/capture/detect-type";
 import { extractFileContent } from "@/capture/extract/file";
+import {
+  cloneOrPullRepo,
+  getClonePath,
+  parseGitHubUrl,
+  readRepoReadme,
+} from "@/capture/extract/github";
 import type { PageMetadata } from "@/capture/extract/metadata";
 import { extractMetadata } from "@/capture/extract/metadata";
 import { checkContentQuality } from "@/capture/extract/quality";
@@ -198,6 +204,15 @@ export const handleCapture = inngest.createFunction(
       extractionMethod = "youtube";
     } else if (type === "twitter") {
       content = "";
+    } else if (type === "github-repo") {
+      content = await step.run("extract-github-repo", async () => {
+        const parsed = parseGitHubUrl(url);
+        if (!parsed) return "";
+        const clonePath = getClonePath();
+        const repoDir = cloneOrPullRepo(parsed.owner, parsed.repo, clonePath);
+        return readRepoReadme(repoDir);
+      });
+      extractionMethod = "github";
     } else {
       // Article, HN, or unknown — use tiered extraction
       const extractUrl =
@@ -269,6 +284,7 @@ export const handleCapture = inngest.createFunction(
       resolvedMode === "full" &&
       !content &&
       type !== "twitter" &&
+      type !== "github-repo" &&
       type !== "file";
 
     // Step 6: YouTube channel fan-out
@@ -356,6 +372,13 @@ export const handleCapture = inngest.createFunction(
         handle: metadata.handle,
         posted: metadata.posted,
         filePath,
+        stars: metadata.stars,
+        language: metadata.language,
+        license: metadata.license,
+        localPath:
+          type === "github-repo" && url
+            ? `~/projects/${parseGitHubUrl(url)?.repo}`
+            : undefined,
       };
       const rendered = buildVaultNote(noteInput);
       return writeVaultNote(undefined, noteInput.title, rendered, url);

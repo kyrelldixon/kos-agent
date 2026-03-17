@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ContentType } from "../schema";
+import { fetchGitHubMetadata, parseGitHubUrl } from "./github";
 
 export interface PageMetadata {
   title?: string;
@@ -18,6 +19,10 @@ export interface PageMetadata {
   // Twitter-specific
   handle?: string;
   posted?: string;
+  // GitHub-specific
+  stars?: number;
+  language?: string;
+  license?: string;
 }
 
 export async function extractMetadata(
@@ -33,6 +38,8 @@ export async function extractMetadata(
       return extractHNMetadata(url);
     case "twitter":
       return extractTwitterMetadata(url);
+    case "github-repo":
+      return extractGitHubRepoMetadata(url);
     default:
       return extractArticleMetadata(url);
   }
@@ -180,6 +187,19 @@ function extractTwitterMetadata(url: string): PageMetadata {
   const pathParts = parsed.pathname.split("/").filter(Boolean);
   return {
     handle: pathParts[0] ? `@${pathParts[0]}` : undefined,
+  };
+}
+
+async function extractGitHubRepoMetadata(url: string): Promise<PageMetadata> {
+  const parsed = parseGitHubUrl(url);
+  if (!parsed) return {};
+  const meta = await fetchGitHubMetadata(parsed.owner, parsed.repo);
+  return {
+    title: parsed.repo,
+    description: meta.description,
+    stars: meta.stars,
+    language: meta.language,
+    license: meta.license,
   };
 }
 
