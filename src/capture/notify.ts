@@ -1,12 +1,12 @@
 import type { Block } from "@slack/types";
-import type { CaptureMode, ContentType } from "./schema";
+import type { ContentType } from "./schema";
 
 interface NotificationInput {
   title: string;
   url?: string;
-  type: ContentType | "file";
-  mode: CaptureMode | "full";
   notePath: string;
+  description: string;
+  failed?: boolean;
 }
 
 const TYPE_EMOJI: Record<string, string> = {
@@ -19,11 +19,20 @@ const TYPE_EMOJI: Record<string, string> = {
 };
 
 export function buildNotificationMessage(input: NotificationInput): string {
-  const emoji = TYPE_EMOJI[input.type] ?? "📎";
-  const modeLabel = input.mode === "full" ? "full capture" : "quick save";
-  const lines = [`${emoji} *${input.title}*`];
-  if (input.url) lines.push(input.url);
-  lines.push(`${input.type} · ${modeLabel} → \`${input.notePath}\``);
+  if (input.failed) {
+    const lines = [`*Failed: ${input.title}*`];
+    lines.push(
+      "Could not extract content — metadata saved, needs manual processing",
+    );
+    if (input.url) lines.push(`${input.url} → \`${input.notePath}\``);
+    else lines.push(`\`${input.notePath}\``);
+    return lines.join("\n");
+  }
+
+  const lines = [`*${input.title}*`];
+  if (input.description) lines.push(input.description);
+  if (input.url) lines.push(`${input.url} → \`${input.notePath}\``);
+  else lines.push(`\`${input.notePath}\``);
   return lines.join("\n");
 }
 

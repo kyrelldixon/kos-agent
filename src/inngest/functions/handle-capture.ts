@@ -322,9 +322,8 @@ export const handleCapture = inngest.createFunction(
       const msg = buildNotificationMessage({
         title: metadata.title ?? url ?? filePath ?? "Untitled",
         url,
-        type,
-        mode: resolvedMode,
         notePath,
+        description: metadata.description ?? "",
       });
 
       await slack.chat
