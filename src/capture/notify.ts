@@ -56,14 +56,14 @@ export function buildTriageBlocks(input: TriageInput): SlackBlock[] {
         {
           type: "button",
           text: { type: "plain_text", text: "Full capture" },
-          action_id: "capture_decision",
+          action_id: `capture_decision_full_${input.captureId}`,
           value: JSON.stringify({ captureId: input.captureId, action: "full" }),
           style: "primary",
         },
         {
           type: "button",
           text: { type: "plain_text", text: "Quick save" },
-          action_id: "capture_decision",
+          action_id: `capture_decision_quick_${input.captureId}`,
           value: JSON.stringify({
             captureId: input.captureId,
             action: "quick-save",
@@ -72,7 +72,7 @@ export function buildTriageBlocks(input: TriageInput): SlackBlock[] {
         {
           type: "button",
           text: { type: "plain_text", text: "Skip" },
-          action_id: "capture_decision",
+          action_id: `capture_decision_skip_${input.captureId}`,
           value: JSON.stringify({ captureId: input.captureId, action: "skip" }),
           style: "danger",
         },

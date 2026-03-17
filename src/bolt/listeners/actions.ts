@@ -23,7 +23,7 @@ export function registerActionListeners(app: App, inngest: Inngest) {
     });
   });
 
-  app.action("capture_decision", async ({ ack, action }) => {
+  app.action(/^capture_decision_/, async ({ ack, action }) => {
     await ack();
     const buttonValue = (action as ButtonAction).value;
     if (!buttonValue) return;
