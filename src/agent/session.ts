@@ -63,14 +63,18 @@ function buildSystemAppend(destination?: {
     "",
     "Content types (auto-detected): article, youtube-video, youtube-channel, hacker-news, github-repo",
     "",
-    "After capturing, you can:",
+    "IMPORTANT: kos capture is ASYNC. It triggers an Inngest pipeline that takes 5-30 seconds.",
+    "After running kos capture, WAIT 10-15 seconds before trying to read the vault note.",
+    "The note file won't exist immediately — the pipeline needs time to extract content and write it.",
+    "Do NOT try to manually fetch/write content if the note isn't there yet. Just wait and retry.",
+    "",
+    "After the pipeline completes, you can:",
     '- Read the vault note with: obsidian read file="Title"',
     '- Add a summary: obsidian append file="Title" content="Summary text"',
     '- Update properties: obsidian property:set name=status value=done file="Title"',
-    '- Create notes from templates: obsidian create name="Title" template="Template Name"',
     "",
     "When someone shares a URL in Slack, consider whether to capture it.",
-    "After capturing, read the extracted content and provide a useful summary.",
+    "After capturing, wait for the pipeline, then read the note and provide a useful summary.",
   );
 
   return lines.join("\n");
