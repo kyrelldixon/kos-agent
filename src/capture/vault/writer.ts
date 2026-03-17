@@ -1,9 +1,9 @@
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { sanitizeFilename } from "./templates";
 
 const VAULT_DIR =
-  process.env.VAULT_DIR ?? `${process.env.HOME}/kyrell-os-vault`;
+  process.env.VAULT_PATH ?? `${process.env.HOME}/kyrell-os-vault`;
 
 export async function writeVaultNote(
   vaultDir: string = VAULT_DIR,
@@ -12,6 +12,7 @@ export async function writeVaultNote(
   url?: string,
 ): Promise<string> {
   const sourcesDir = join(vaultDir, "sources");
+  await mkdir(sourcesDir, { recursive: true });
 
   // Idempotency: check if a note with this URL already exists
   if (url) {
