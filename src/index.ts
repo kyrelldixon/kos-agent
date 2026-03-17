@@ -18,7 +18,6 @@ import {
 } from "@/inngest/functions/index";
 import { syncAllJobs } from "@/jobs/sync";
 import { getOrCreateDeploySecret } from "@/lib/deploy/secret";
-import { cfAccessMiddleware } from "@/lib/middleware/access";
 import { createCaptureRoutes } from "@/routes/capture";
 import { createConfigRoutes } from "@/routes/config";
 import { createHooksRoutes } from "@/routes/hooks";
@@ -87,19 +86,8 @@ hono.route(
   }),
 );
 
-// Protected API routes (auth via Cloudflare Access service token)
-const cfClientId = process.env.CF_ACCESS_CLIENT_ID ?? "";
-if (cfClientId) {
-  const accessMw = cfAccessMiddleware(cfClientId);
-  hono.use("/api/config", accessMw);
-  hono.use("/api/config/*", accessMw);
-  hono.use("/api/workspaces", accessMw);
-  hono.use("/api/workspaces/*", accessMw);
-  hono.use("/api/capture", accessMw);
-  hono.use("/api/capture/*", accessMw);
-  // Jobs API: no CF Access — agent calls from localhost, server already bound to 127.0.0.1
-  // CF Access can be added when CLI remote access is built
-}
+// All routes are protected by Cloudflare Tunnel (localhost-only binding)
+// + Cloudflare Access at the edge. No application-level auth middleware needed.
 hono.route("/api/config", createConfigRoutes());
 hono.route("/api/workspaces", createWorkspacesRoutes());
 hono.route("/api/jobs", createJobsRoutes());
