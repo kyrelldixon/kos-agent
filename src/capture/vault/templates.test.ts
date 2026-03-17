@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { renderVaultNote } from "./templates";
+import { buildVaultNote, renderVaultNote } from "./templates";
 
 describe("renderVaultNote", () => {
   test("renders article note with full content", () => {
@@ -145,5 +145,55 @@ describe("renderVaultNote", () => {
     expect(note).not.toContain("hn_url:");
     expect(note).not.toContain("handle:");
     expect(note).not.toContain("file_path:");
+  });
+});
+
+describe("buildVaultNote", () => {
+  test("builds article note with frontmatter and body content", () => {
+    const note = buildVaultNote({
+      type: "article",
+      title: "Test Article",
+      url: "https://example.com",
+      author: "John Doe",
+      description: "A test article",
+      content: "Full article content here",
+      extractionMethod: "jina",
+    });
+
+    // Frontmatter
+    expect(note).toContain("source_type: article");
+    expect(note).toContain('url: "https://example.com"');
+    expect(note).toContain("extraction_method: jina");
+    expect(note).toContain("status: raw");
+    // Body — summary in content, not frontmatter
+    expect(note).toContain("# Test Article");
+    expect(note).toContain("A test article");
+    expect(note).toContain("Full article content here");
+  });
+
+  test("sets extraction-failed status when content is empty on full mode", () => {
+    const note = buildVaultNote({
+      type: "article",
+      title: "Failed Article",
+      url: "https://example.com",
+      extractionFailed: true,
+    });
+    expect(note).toContain("status: extraction-failed");
+  });
+
+  test("builds github-repo note with repo-specific fields", () => {
+    const note = buildVaultNote({
+      type: "github-repo",
+      title: "cool-repo",
+      url: "https://github.com/owner/cool-repo",
+      stars: 1234,
+      language: "TypeScript",
+      license: "MIT",
+      localPath: "~/projects/cool-repo",
+    });
+    expect(note).toContain("source_type: github-repo");
+    expect(note).toContain("stars: 1234");
+    expect(note).toContain('language: "TypeScript"');
+    expect(note).toContain('local_path: "~/projects/cool-repo"');
   });
 });

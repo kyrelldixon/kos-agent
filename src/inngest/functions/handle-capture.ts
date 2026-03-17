@@ -11,10 +11,7 @@ import {
 } from "@/capture/extract/youtube";
 import { buildNotificationMessage, buildTriageBlocks } from "@/capture/notify";
 import type { CaptureMode, ContentType } from "@/capture/schema";
-import {
-  renderVaultNote,
-  type VaultNoteInput,
-} from "@/capture/vault/templates";
+import { buildVaultNote, type VaultNoteInput } from "@/capture/vault/templates";
 import { writeVaultNote } from "@/capture/vault/writer";
 import { getNotifyChannel } from "@/lib/channels";
 import { slack } from "@/lib/slack";
@@ -342,13 +339,14 @@ export const handleCapture = inngest.createFunction(
     const notePath = await step.run("write-vault-note", async () => {
       const noteInput: VaultNoteInput = {
         type: type === "file" ? "file" : type,
-        mode: resolvedMode,
         title: metadata.title ?? url ?? filePath ?? "Untitled",
         url,
         author: metadata.author,
         description: metadata.description,
         published: metadata.published,
         content: resolvedMode === "full" ? content : undefined,
+        extractionMethod,
+        extractionFailed,
         channel: metadata.channel,
         duration: metadata.duration,
         views: metadata.views,
@@ -359,7 +357,7 @@ export const handleCapture = inngest.createFunction(
         posted: metadata.posted,
         filePath,
       };
-      const rendered = renderVaultNote(noteInput);
+      const rendered = buildVaultNote(noteInput);
       return writeVaultNote(undefined, noteInput.title, rendered, url);
     });
 
