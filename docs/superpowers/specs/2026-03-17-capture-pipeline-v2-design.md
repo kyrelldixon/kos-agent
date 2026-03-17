@@ -159,7 +159,7 @@ z.object({ url: z.string() })
 // Called as:
 step.invoke("tier-1-jina", {
   function: jinaExtraction,
-  url: "https://example.com",  // spread at top level, not nested in data
+  data: { url: "https://example.com" },  // data wraps the invoke schema payload
   timeout: "30s",
 })
 ```
