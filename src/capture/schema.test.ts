@@ -5,7 +5,27 @@ import {
   CaptureEventSchema,
   CaptureFileEventSchema,
   CaptureRequestSchema,
+  ContentTypeEnum,
 } from "./schema";
+
+describe("ContentTypeEnum", () => {
+  test("accepts github-repo as a valid content type", () => {
+    const result = ContentTypeEnum.safeParse("github-repo");
+    expect(result.success).toBe(true);
+  });
+
+  test("still accepts existing content types", () => {
+    for (const t of [
+      "article",
+      "youtube-video",
+      "youtube-channel",
+      "hacker-news",
+      "twitter",
+    ]) {
+      expect(ContentTypeEnum.safeParse(t).success).toBe(true);
+    }
+  });
+});
 
 describe("CaptureDestinationSchema", () => {
   test("accepts chatId only", () => {

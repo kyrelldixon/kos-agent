@@ -6,6 +6,7 @@ export const ContentTypeEnum = z.enum([
   "youtube-channel",
   "hacker-news",
   "twitter",
+  "github-repo",
 ]);
 export type ContentType = z.infer<typeof ContentTypeEnum>;
 
