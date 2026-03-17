@@ -1,4 +1,7 @@
 export { acknowledgeMessage } from "@/inngest/functions/acknowledge-message";
+export { cfBrowserExtraction } from "@/inngest/functions/extract-cf-browser";
+export { jinaExtraction } from "@/inngest/functions/extract-jina";
+export { localExtraction } from "@/inngest/functions/extract-local";
 export { handleCapture } from "@/inngest/functions/handle-capture";
 export { handleFailure } from "@/inngest/functions/handle-failure";
 export { handleMessage } from "@/inngest/functions/handle-message";

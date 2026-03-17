@@ -10,10 +10,13 @@ import { registerListeners } from "@/bolt/listeners/index";
 import { inngest } from "@/inngest/client";
 import {
   acknowledgeMessage,
+  cfBrowserExtraction,
   handleCapture,
   handleFailure,
   handleMessage,
   handleScheduledJob,
+  jinaExtraction,
+  localExtraction,
   sendReply,
 } from "@/inngest/functions/index";
 import { syncAllJobs } from "@/jobs/sync";
@@ -45,6 +48,9 @@ if (syncReport.synced.length || syncReport.removed.length) {
 // All Inngest functions registered
 const functions = [
   acknowledgeMessage,
+  cfBrowserExtraction,
+  jinaExtraction,
+  localExtraction,
   handleCapture,
   handleFailure,
   handleMessage,
