@@ -49,6 +49,30 @@ function buildSystemAppend(destination?: {
     "For multiple triggers per job, use --json mode with a calendar array.",
   );
 
+  lines.push(
+    "",
+    "## Content Capture",
+    "Capture URLs and content into the Obsidian vault using the kos CLI.",
+    "",
+    "Commands:",
+    "kos capture <url> --quick          # Quick save: metadata only",
+    "kos capture <url> --full           # Full capture: extract content",
+    "kos capture <url>                  # Triage: Slack buttons to decide",
+    "kos capture --batch-file urls.txt  # Batch capture from file",
+    "kos capture --file /path/to/doc    # Capture a local file",
+    "",
+    "Content types (auto-detected): article, youtube-video, youtube-channel, hacker-news, github-repo",
+    "",
+    "After capturing, you can:",
+    '- Read the vault note with: obsidian read file="Title"',
+    '- Add a summary: obsidian append file="Title" content="Summary text"',
+    '- Update properties: obsidian property:set name=status value=done file="Title"',
+    '- Create notes from templates: obsidian create name="Title" template="Template Name"',
+    "",
+    "When someone shares a URL in Slack, consider whether to capture it.",
+    "After capturing, read the extracted content and provide a useful summary.",
+  );
+
   return lines.join("\n");
 }
 
