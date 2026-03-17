@@ -18,6 +18,15 @@ const patterns: Array<{ type: ContentType; test: (url: URL) => boolean }> = [
     test: (url) => url.hostname === "news.ycombinator.com",
   },
   {
+    type: "github-repo",
+    test: (url) => {
+      if (url.hostname !== "github.com") return false;
+      // Must have at least /owner/repo (2 path segments)
+      const segments = url.pathname.split("/").filter(Boolean);
+      return segments.length >= 2;
+    },
+  },
+  {
     type: "twitter",
     test: (url) =>
       url.hostname === "x.com" ||

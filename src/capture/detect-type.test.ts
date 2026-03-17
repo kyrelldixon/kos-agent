@@ -65,4 +65,21 @@ describe("detectContentType", () => {
       detectContentType("https://news.ycombinator.com/item?id=12345#comments"),
     ).toBe("hacker-news");
   });
+
+  test("detects github.com repo URLs as github-repo", () => {
+    expect(detectContentType("https://github.com/owner/repo")).toBe(
+      "github-repo",
+    );
+  });
+
+  test("detects github.com repo URLs with trailing path", () => {
+    expect(detectContentType("https://github.com/owner/repo/tree/main")).toBe(
+      "github-repo",
+    );
+  });
+
+  test("does not match github.com root or user profile as github-repo", () => {
+    expect(detectContentType("https://github.com")).toBe("article");
+    expect(detectContentType("https://github.com/owner")).toBe("article");
+  });
 });
