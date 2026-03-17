@@ -313,45 +313,7 @@ export const handleCapture = inngest.createFunction(
       }
     }
 
-    // Step 7: HN content from disk (avoids step output size limits)
-    if (
-      type === "hacker-news" &&
-      resolvedMode === "full" &&
-      content.startsWith(CAPTURES_DIR)
-    ) {
-      content = await step.run("read-hn-content", async () => {
-        const raw = await Bun.file(content).text();
-        const parsed: unknown = JSON.parse(raw);
-        const hn =
-          typeof parsed === "object" && parsed !== null ? parsed : null;
-        const article =
-          hn && "article" in hn && typeof hn.article === "string"
-            ? hn.article
-            : "";
-        const rawComments =
-          hn && "comments" in hn && Array.isArray(hn.comments)
-            ? hn.comments
-            : [];
-        const comments = rawComments.filter(
-          (c): c is { author: string; text: string; points: number } =>
-            typeof c === "object" &&
-            c !== null &&
-            "author" in c &&
-            "text" in c &&
-            "points" in c,
-        );
-        const parts = [`## Article\n\n${article}`];
-        if (comments.length > 0) {
-          parts.push("## Discussion\n");
-          for (const c of comments.slice(0, 10)) {
-            parts.push(`**${c.author}** (${c.points} points)\n${c.text}\n`);
-          }
-        }
-        return parts.join("\n\n");
-      });
-    }
-
-    // Step 8: Write vault note
+    // Step 7: Write vault note
     const notePath = await step.run("write-vault-note", async () => {
       const noteInput: VaultNoteInput = {
         type: type === "file" ? "file" : type,
