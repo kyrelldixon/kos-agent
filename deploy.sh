@@ -53,9 +53,6 @@ build() {
 
   info "Installing dependencies..."
   bun install
-
-  info "Updating kos CLI..."
-  kos update
 }
 
 install_plist() {
