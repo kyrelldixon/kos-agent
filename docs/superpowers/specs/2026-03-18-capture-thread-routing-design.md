@@ -26,8 +26,8 @@ Both issues stem from the capture pipeline lacking a `destination` passthrough:
 
 Pass thread context through the entire pipeline via a `destination` object. Remove the `source` field entirely. Notification routing becomes:
 
-- **`destination` present** → post to that thread
-- **`destination` absent** → post to notify channel
+- **Always** post to notify channel (if configured) for the capture feed
+- **Additionally** post to destination thread if `destination` is present
 
 ### Changes by layer
 
@@ -80,20 +80,52 @@ if (source === "cli") {
 
 New logic:
 ```typescript
-if (destination && destination.chatId) {
-  // post to destination.chatId with thread_ts: destination.threadId
-} else {
-  // post to notifyChannel (if configured)
+// Always post to notify channel for the capture feed
+const notifyChannel = await getNotifyChannel();
+if (notifyChannel) {
+  await slack.chat.postMessage({ channel: notifyChannel, text: msg });
+}
+
+// Also post to destination thread if present
+if (destination?.chatId) {
+  await slack.chat.postMessage({
+    channel: destination.chatId,
+    thread_ts: destination.threadId,
+    text: msg,
+  });
 }
 ```
 
-This is an intentional behavioral change: the old code posted to both notifyChannel AND destination thread for CLI captures with a destination. The new code posts to one or the other, not both. This is simpler and avoids duplicate notifications.
+Both fire independently — notify channel is the capture feed, destination thread is the caller's context. No `source` check needed.
 
 **YouTube channel fan-out (line 305):** Remove `source: event.data.source` from the fan-out event data. The fan-out already passes `destination` (line 306), so child video captures will inherit the correct notification routing.
 
 **`isCaptureEvent` type guard:** Keep it — it's still used on lines 73, 78, and 85 for narrowing `url`, `mode`, and `type` fields. It doesn't depend on `source` (checks `event.name`). Only remove its use in the notification step.
 
-**Triage mode (lines 95-121):** The `post-triage-prompt` step posts triage buttons to `notifyChannel`. This remains unchanged — triage buttons are interactive prompts that belong in the notify channel, not in an arbitrary thread. If the agent triggers triage mode, the buttons still go to the notify channel. The system prompt should steer the agent toward always using `--full` or `--quick` to avoid this.
+**Triage mode (lines 95-121):** Make triage buttons destination-aware. Same pattern as notifications: always post to notify channel, and additionally post to destination thread if present. This way triage buttons appear in the conversation thread when the agent or a CLI caller provides a destination.
+
+Current code posts triage buttons only to `notifyChannel` (line 103). Update to:
+```typescript
+// Post to notify channel
+const notifyChannel = await getNotifyChannel();
+if (notifyChannel) {
+  await slack.chat.postMessage({ channel: notifyChannel, text, blocks });
+}
+
+// Also post to destination thread if present
+if (destination?.chatId) {
+  await slack.chat.postMessage({
+    channel: destination.chatId,
+    thread_ts: destination.threadId,
+    text,
+    blocks,
+  });
+}
+```
+
+The `waitForEvent` for the user decision will still work regardless of which copy the user clicks — the button action payload carries the `captureId`, not the channel context.
+
+**Stale button cleanup:** The current code (lines 131-152) updates the triage message to remove buttons after a decision or timeout, but only tracks the notify channel copy. When adding a second copy in the destination thread, track both message references and update both in the `update-triage-message` step so stale buttons don't remain visible.
 
 #### 5. Agent system prompt: `src/agent/session.ts`
 
@@ -144,9 +176,11 @@ Update tests to remove `source` from test data in `CaptureEventSchema` and `Capt
 ## Testing
 
 - `kos capture <url> --full --channel C123 --thread 123.456` should include destination in the Inngest event.
-- `kos capture <url> --full` (no flags) should still work, notifications go to notify channel.
-- Agent-initiated capture with `--channel`/`--thread` should post completion to the correct thread.
+- `kos capture <url> --full` (no flags) should still work, notifications go to notify channel only.
+- Agent-initiated capture with `--channel`/`--thread` should post completion to both notify channel AND the destination thread.
 - Existing CLI captures without flags should continue to notify the configured channel.
 - Schema validation should reject malformed destination objects.
 - YouTube channel fan-out should propagate destination without source.
+- Triage mode with destination should post buttons to both notify channel and destination thread.
+- Triage button clicks should work regardless of which copy is clicked.
 - All `src/capture/schema.test.ts` tests pass after source removal.
