@@ -120,7 +120,9 @@ export async function* streamAgentSession(
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
       cwd: input.workspace,
-      ...(Object.keys(env).length > 0 ? { env } : {}),
+      ...(Object.keys(env).length > 0
+        ? { env: { ...process.env, ...env } }
+        : {}),
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
