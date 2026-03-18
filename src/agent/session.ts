@@ -92,14 +92,6 @@ export async function* streamAgentSession(
     `[agent] Starting session: ${input.sessionId ? "resume" : "new"}, workspace: ${input.workspace}`,
   );
 
-  const env: Record<string, string> = {};
-  if (input.destination?.chatId) {
-    env.KOS_SLACK_CHANNEL = input.destination.chatId;
-  }
-  if (input.destination?.threadId) {
-    env.KOS_SLACK_THREAD = input.destination.threadId;
-  }
-
   const stream = query({
     prompt: input.message,
     options: {
@@ -120,9 +112,6 @@ export async function* streamAgentSession(
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
       cwd: input.workspace,
-      ...(Object.keys(env).length > 0
-        ? { env: { ...process.env, ...env } }
-        : {}),
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
