@@ -25,7 +25,6 @@ export const agentMessageReceived = eventType("agent.message.received", {
     message: z.string(),
     sessionKey: z.string(),
     channel: z.string(),
-    sender: z.object({ id: z.string(), name: z.string().optional() }),
     destination: destinationSchema,
   }),
 });

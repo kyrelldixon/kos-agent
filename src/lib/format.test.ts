@@ -39,6 +39,11 @@ describe("markdownToSlackMrkdwn", () => {
     expect(markdownToSlackMrkdwn("- item one")).toBe("• item one");
   });
 
+  test("preserves numbered list order", () => {
+    const input = "1. first\n2. second\n3. third";
+    expect(markdownToSlackMrkdwn(input)).toBe("1. first\n2. second\n3. third");
+  });
+
   test("preserves bare URLs", () => {
     const input = "visit https://example.com/path_with_underscores today";
     const result = markdownToSlackMrkdwn(input);

@@ -5,7 +5,6 @@ import { getSession } from "@/lib/sessions";
 
 export function buildEventData(
   channel: string,
-  user: string,
   text: string,
   ts: string,
   threadTs?: string,
@@ -15,7 +14,6 @@ export function buildEventData(
     message: text,
     sessionKey: `slack-${channel}-${resolvedThread}`,
     channel: "slack" as const,
-    sender: { id: user },
     destination: {
       chatId: channel,
       threadId: resolvedThread,
@@ -35,13 +33,7 @@ export function registerMessageListeners(app: App, inngest: Inngest) {
 
     await inngest.send({
       name: "agent.message.received",
-      data: buildEventData(
-        event.channel,
-        user,
-        text,
-        event.ts,
-        event.thread_ts,
-      ),
+      data: buildEventData(event.channel, text, event.ts, event.thread_ts),
     });
   });
 
@@ -67,7 +59,7 @@ export function registerMessageListeners(app: App, inngest: Inngest) {
 
     await inngest.send({
       name: "agent.message.received",
-      data: buildEventData(message.channel, user, text, message.ts, threadTs),
+      data: buildEventData(message.channel, text, message.ts, threadTs),
     });
   });
 }

@@ -1,5 +1,5 @@
 import { agentMessageReceived, inngest } from "@/inngest/client";
-import { slack } from "@/lib/slack";
+import { addReaction } from "@/lib/slack";
 
 export const acknowledgeMessage = inngest.createFunction(
   {
@@ -10,18 +10,10 @@ export const acknowledgeMessage = inngest.createFunction(
   async ({ event, step }) => {
     const { channel, destination } = event.data;
 
-    try {
-      await step.run("add-reaction", async () => {
-        if (channel === "slack") {
-          await slack.reactions.add({
-            channel: destination.chatId,
-            timestamp: destination.messageId,
-            name: "brain",
-          });
-        }
-      });
-    } catch (err) {
-      console.warn("acknowledge reaction failed:", err);
+    if (channel === "slack") {
+      await step.run("add-reaction", () =>
+        addReaction(destination.chatId, destination.messageId, "brain"),
+      );
     }
   },
 );

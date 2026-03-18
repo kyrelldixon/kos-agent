@@ -63,8 +63,7 @@ export function markdownToSlackMrkdwn(text: string): string {
 
   result = result
     .replace(/~~(.*?)~~/g, "~$1~")
-    .replace(/^[\s]*[-*+]\s+/gm, "• ")
-    .replace(/^[\s]*\d+\.\s+/gm, "1. ");
+    .replace(/^[\s]*[-*+]\s+/gm, "• ");
 
   // Restore protected tokens
   result = result.replace(restorePattern("URL"), (_, i) => urls[Number(i)]);

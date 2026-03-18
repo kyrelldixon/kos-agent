@@ -230,6 +230,7 @@ export const handleMessage = inngest.createFunction(
       await step.run("save-session", async () => {
         await saveSession(sessionKey, {
           sessionId: sessionId as string,
+          workspace,
         });
       });
     }

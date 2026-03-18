@@ -32,10 +32,10 @@ function buildSystemAppend(destination?: {
     "Manage scheduled jobs with the kos CLI. All output is JSON.",
     "",
     "Create a script job (always start --script with #!/bin/bash):",
-    'kos jobs create <name> --schedule periodic --seconds <N> --type script --script "#!/bin/bash\\n<commands>" --channel <chatId> --thread <threadId>',
+    `kos jobs create <name> --schedule periodic --seconds <N> --type script --script "#!/bin/bash\\n<commands>" --channel ${destination?.chatId ?? "<chatId>"} --thread ${destination?.threadId ?? "<threadId>"}`,
     "",
     "Create an agent job:",
-    'kos jobs create <name> --schedule scheduled --hour 9 --minute 0 --type agent --prompt "<what to do>" --channel <chatId> --thread <threadId>',
+    `kos jobs create <name> --schedule scheduled --hour 9 --minute 0 --type agent --prompt "<what to do>" --channel ${destination?.chatId ?? "<chatId>"} --thread ${destination?.threadId ?? "<threadId>"}`,
     "",
     "Other commands:",
     "kos jobs list",
@@ -92,6 +92,14 @@ export async function* streamAgentSession(
     `[agent] Starting session: ${input.sessionId ? "resume" : "new"}, workspace: ${input.workspace}`,
   );
 
+  const env: Record<string, string> = {};
+  if (input.destination?.chatId) {
+    env.KOS_SLACK_CHANNEL = input.destination.chatId;
+  }
+  if (input.destination?.threadId) {
+    env.KOS_SLACK_THREAD = input.destination.threadId;
+  }
+
   const stream = query({
     prompt: input.message,
     options: {
@@ -112,6 +120,7 @@ export async function* streamAgentSession(
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
       cwd: input.workspace,
+      ...(Object.keys(env).length > 0 ? { env } : {}),
       systemPrompt: {
         type: "preset",
         preset: "claude_code",

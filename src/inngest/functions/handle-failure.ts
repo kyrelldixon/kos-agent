@@ -1,6 +1,6 @@
 import { NonRetriableError } from "inngest";
 import { inngest } from "@/inngest/client";
-import { slack } from "@/lib/slack";
+import { addReaction, removeReaction, slack } from "@/lib/slack";
 
 export const handleFailure = inngest.createFunction(
   {
@@ -17,36 +17,13 @@ export const handleFailure = inngest.createFunction(
     const functionId = event.data.function_id;
     const error = event.data.error?.message ?? "Unknown error";
 
-    try {
-      await step.run("remove-brain-reaction", async () => {
-        if (channel === "slack") {
-          await slack.reactions.remove({
-            channel: chatId,
-            timestamp: messageId,
-            name: "brain",
-          });
-        }
+    if (channel === "slack") {
+      await step.run("swap-reaction", async () => {
+        await removeReaction(chatId, messageId, "brain");
+        await addReaction(chatId, messageId, "x");
       });
-    } catch (err) {
-      console.warn("remove brain reaction failed:", err);
-    }
 
-    try {
-      await step.run("add-error-reaction", async () => {
-        if (channel === "slack") {
-          await slack.reactions.add({
-            channel: chatId,
-            timestamp: messageId,
-            name: "x",
-          });
-        }
-      });
-    } catch (err) {
-      console.warn("add error reaction failed:", err);
-    }
-
-    await step.run("notify-user", async () => {
-      if (channel === "slack") {
+      await step.run("notify-user", async () => {
         try {
           await slack.chat.postMessage({
             channel: chatId,
@@ -54,14 +31,13 @@ export const handleFailure = inngest.createFunction(
             thread_ts: threadId,
           });
         } catch (err) {
-          // If we can't even post the error message, don't retry — prevent infinite failure loops
           const slackError = err as { data?: { error?: string } };
           throw new NonRetriableError(
             `Failed to post error notification: ${slackError.data?.error ?? "unknown"}`,
             { cause: err as Error },
           );
         }
-      }
-    });
+      });
+    }
   },
 );
