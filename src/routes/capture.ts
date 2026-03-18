@@ -20,7 +20,7 @@ export function createCaptureRoutes(inngest: {
       );
     }
 
-    const { urls, filePath, mode, type, title } = parsed.data;
+    const { urls, filePath, mode, type, title, destination } = parsed.data;
     const captured: Array<{
       captureKey: string;
       url?: string;
@@ -37,7 +37,7 @@ export function createCaptureRoutes(inngest: {
           captureKey,
           filePath,
           title,
-          source: "cli",
+          destination,
         },
       });
       captured.push({
@@ -56,8 +56,8 @@ export function createCaptureRoutes(inngest: {
             captureKey: url,
             url,
             type: detectedType,
-            source: "cli",
             mode: resolvedMode,
+            destination,
           },
         };
       });
