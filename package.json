@@ -6,7 +6,8 @@
     "dev": "INNGEST_DEV=1 bunx varlock run -- bun --watch src/index.ts",
     "test": "bun test",
     "lint": "bunx biome check .",
-    "format": "bunx biome format --write ."
+    "format": "bunx biome format --write .",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.74",
