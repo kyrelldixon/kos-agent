@@ -302,7 +302,6 @@ export const handleCapture = inngest.createFunction(
           captureKey: v.url,
           url: v.url,
           type: "youtube-video" as const,
-          source: event.data.source,
           destination,
           parentCaptureId: event.data.captureKey,
           mode: "full" as const,
@@ -350,45 +349,40 @@ export const handleCapture = inngest.createFunction(
     await step.run("cleanup", async () => {
       await rm(captureDir, { recursive: true, force: true }).catch(() => {});
     });
+    await step.run("notify", async () => {
+      const notifyChannel = await getNotifyChannel();
+      if (!notifyChannel) return;
 
-    // Step 10: Notify via Slack (only for CLI-triggered captures; agent handles its own)
-    const source = isCaptureEvent(event) ? event.data.source : "cli";
-    if (source === "cli") {
-      await step.run("notify", async () => {
-        const notifyChannel = await getNotifyChannel();
-        if (!notifyChannel) return;
+      const msg = buildNotificationMessage({
+        title: metadata.title ?? url ?? filePath ?? "Untitled",
+        url,
+        notePath,
+        description: metadata.description ?? "",
+        failed: extractionFailed,
+      });
 
-        const msg = buildNotificationMessage({
-          title: metadata.title ?? url ?? filePath ?? "Untitled",
-          url,
-          notePath,
-          description: metadata.description ?? "",
-          failed: extractionFailed,
-        });
+      await slack.chat
+        .postMessage({
+          channel: notifyChannel,
+          text: msg,
+        })
+        .catch(() => {});
 
+      if (
+        destination &&
+        "chatId" in destination &&
+        "threadId" in destination &&
+        destination.threadId
+      ) {
         await slack.chat
           .postMessage({
-            channel: notifyChannel,
+            channel: destination.chatId,
+            thread_ts: destination.threadId,
             text: msg,
           })
           .catch(() => {});
-
-        if (
-          destination &&
-          "chatId" in destination &&
-          "threadId" in destination &&
-          destination.threadId
-        ) {
-          await slack.chat
-            .postMessage({
-              channel: destination.chatId,
-              thread_ts: destination.threadId,
-              text: msg,
-            })
-            .catch(() => {});
-        }
-      });
-    }
+      }
+    });
 
     return {
       status: extractionFailed ? "extraction-failed" : "captured",

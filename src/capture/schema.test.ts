@@ -52,7 +52,6 @@ describe("CaptureEventSchema", () => {
     const result = CaptureEventSchema.safeParse({
       captureKey: "https://example.com",
       url: "https://example.com",
-      source: "cli",
     });
     expect(result.success).toBe(true);
     if (result.success) {
@@ -65,7 +64,6 @@ describe("CaptureEventSchema", () => {
       captureKey: "https://youtube.com/watch?v=abc",
       url: "https://youtube.com/watch?v=abc",
       type: "youtube-video",
-      source: "slack",
       destination: { chatId: "C123", threadId: "ts123" },
       batchId: "batch-1",
       parentCaptureId: "parent-1",
@@ -74,20 +72,10 @@ describe("CaptureEventSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  test("rejects invalid source", () => {
-    const result = CaptureEventSchema.safeParse({
-      captureKey: "https://example.com",
-      url: "https://example.com",
-      source: "invalid",
-    });
-    expect(result.success).toBe(false);
-  });
-
   test("rejects invalid content type", () => {
     const result = CaptureEventSchema.safeParse({
       captureKey: "https://example.com",
       url: "https://example.com",
-      source: "cli",
       type: "podcast",
     });
     expect(result.success).toBe(false);
@@ -99,7 +87,6 @@ describe("CaptureFileEventSchema", () => {
     const result = CaptureFileEventSchema.safeParse({
       captureKey: "file:///Users/me/doc.md",
       filePath: "/Users/me/doc.md",
-      source: "cli",
     });
     expect(result.success).toBe(true);
   });
@@ -109,18 +96,17 @@ describe("CaptureFileEventSchema", () => {
       captureKey: "file:///Users/me/doc.md",
       filePath: "/Users/me/doc.md",
       title: "My Document",
-      source: "cli",
     });
     expect(result.success).toBe(true);
   });
 
-  test("rejects extension source", () => {
+  test("accepts destination", () => {
     const result = CaptureFileEventSchema.safeParse({
       captureKey: "file:///Users/me/doc.md",
       filePath: "/Users/me/doc.md",
-      source: "extension",
+      destination: { chatId: "C123", threadId: "1234567890.123456" },
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 });
 
@@ -180,6 +166,22 @@ describe("CaptureRequestSchema", () => {
       urls: ["https://example.com", "https://youtube.com/watch?v=abc"],
       mode: "full",
       type: "article",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("validates with destination", () => {
+    const result = CaptureRequestSchema.safeParse({
+      urls: ["https://example.com"],
+      destination: { chatId: "C123", threadId: "1234567890.123456" },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("validates destination without threadId", () => {
+    const result = CaptureRequestSchema.safeParse({
+      urls: ["https://example.com"],
+      destination: { chatId: "C123" },
     });
     expect(result.success).toBe(true);
   });

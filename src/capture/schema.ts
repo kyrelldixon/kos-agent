@@ -13,9 +13,6 @@ export type ContentType = z.infer<typeof ContentTypeEnum>;
 export const CaptureModeEnum = z.enum(["full", "quick", "triage"]);
 export type CaptureMode = z.infer<typeof CaptureModeEnum>;
 
-export const CaptureSourceEnum = z.enum(["slack", "cli", "extension"]);
-export type CaptureSource = z.infer<typeof CaptureSourceEnum>;
-
 export const CaptureDecisionEnum = z.enum(["full", "quick-save", "skip"]);
 export type CaptureDecision = z.infer<typeof CaptureDecisionEnum>;
 
@@ -29,7 +26,6 @@ export const CaptureEventSchema = z.object({
   captureKey: z.string(),
   url: z.string().url(),
   type: ContentTypeEnum.optional(),
-  source: CaptureSourceEnum,
   destination: CaptureDestinationSchema.optional(),
   batchId: z.string().optional(),
   parentCaptureId: z.string().optional(),
@@ -43,7 +39,6 @@ export const CaptureEventInngestSchema = z.object({
   captureKey: z.string(),
   url: z.string().url(),
   type: ContentTypeEnum.optional(),
-  source: CaptureSourceEnum,
   destination: CaptureDestinationSchema.optional(),
   batchId: z.string().optional(),
   parentCaptureId: z.string().optional(),
@@ -54,7 +49,6 @@ export const CaptureFileEventSchema = z.object({
   captureKey: z.string(),
   filePath: z.string(),
   title: z.string().optional(),
-  source: z.enum(["slack", "cli"]),
   destination: CaptureDestinationSchema.optional(),
 });
 export type CaptureFileEventData = z.infer<typeof CaptureFileEventSchema>;
@@ -74,6 +68,7 @@ export const CaptureRequestSchema = z
     mode: CaptureModeEnum.optional(),
     type: ContentTypeEnum.optional(),
     title: z.string().optional(),
+    destination: CaptureDestinationSchema.optional(),
   })
   .refine((data) => {
     const hasUrls = data.urls !== undefined && data.urls.length > 0;
