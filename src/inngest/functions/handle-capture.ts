@@ -99,10 +99,7 @@ export const handleCapture = inngest.createFunction(
       );
 
       // Post triage buttons to Slack
-      const triageMessage = await step.run("post-triage-prompt", async () => {
-        const notifyChannel = await getNotifyChannel();
-        if (!notifyChannel) return null;
-
+      const triageMessages = await step.run("post-triage-prompt", async () => {
         const description = formatTriageDescription(type, triageMeta);
         const blocks = buildTriageBlocks({
           captureId: event.data.captureKey,
@@ -110,14 +107,37 @@ export const handleCapture = inngest.createFunction(
           title: triageMeta.title ?? url,
           description,
         });
+        const text = `Capture: ${triageMeta.title ?? url}`;
 
-        const result = await slack.chat.postMessage({
-          channel: notifyChannel,
-          text: `Capture: ${triageMeta.title ?? url}`,
-          blocks,
-        });
+        const messages: Array<{ channel: string; ts: string }> = [];
 
-        return { channel: result.channel, ts: result.ts };
+        // Always post to notify channel
+        const notifyChannel = await getNotifyChannel();
+        if (notifyChannel) {
+          const result = await slack.chat
+            .postMessage({ channel: notifyChannel, text, blocks })
+            .catch(() => null);
+          if (result?.channel && result?.ts) {
+            messages.push({ channel: result.channel, ts: result.ts });
+          }
+        }
+
+        // Also post to destination thread if present
+        if (destination?.chatId) {
+          const result = await slack.chat
+            .postMessage({
+              channel: destination.chatId,
+              thread_ts: destination.threadId,
+              text,
+              blocks,
+            })
+            .catch(() => null);
+          if (result?.channel && result?.ts) {
+            messages.push({ channel: result.channel, ts: result.ts });
+          }
+        }
+
+        return messages;
       });
 
       // Wait for user decision (4h timeout)
@@ -127,10 +147,8 @@ export const handleCapture = inngest.createFunction(
         if: `async.data.captureId == "${event.data.captureKey}"`,
       });
 
-      // Update triage message with outcome
-      const triageChannel = triageMessage?.channel;
-      const triageTs = triageMessage?.ts;
-      if (triageChannel && triageTs) {
+      // Update all triage messages with outcome
+      if (triageMessages.length > 0) {
         const outcome = decision
           ? decision.data.action === "full"
             ? "Full capture started"
@@ -139,15 +157,17 @@ export const handleCapture = inngest.createFunction(
               : "Quick-saved"
           : "Timed out - quick-saved";
 
-        await step.run("update-triage-message", async () => {
-          await slack.chat
-            .update({
-              channel: triageChannel,
-              ts: triageTs,
-              text: `Capture: ${triageMeta.title ?? url} - ${outcome}`,
-              blocks: [],
-            })
-            .catch(() => {});
+        await step.run("update-triage-messages", async () => {
+          for (const msg of triageMessages) {
+            await slack.chat
+              .update({
+                channel: msg.channel,
+                ts: msg.ts,
+                text: `Capture: ${triageMeta.title ?? url} - ${outcome}`,
+                blocks: [],
+              })
+              .catch(() => {});
+          }
         });
       }
 
@@ -349,10 +369,8 @@ export const handleCapture = inngest.createFunction(
     await step.run("cleanup", async () => {
       await rm(captureDir, { recursive: true, force: true }).catch(() => {});
     });
+    // Step 10: Notify via Slack
     await step.run("notify", async () => {
-      const notifyChannel = await getNotifyChannel();
-      if (!notifyChannel) return;
-
       const msg = buildNotificationMessage({
         title: metadata.title ?? url ?? filePath ?? "Untitled",
         url,
@@ -361,19 +379,16 @@ export const handleCapture = inngest.createFunction(
         failed: extractionFailed,
       });
 
-      await slack.chat
-        .postMessage({
-          channel: notifyChannel,
-          text: msg,
-        })
-        .catch(() => {});
+      // Always post to notify channel for the capture feed
+      const notifyChannel = await getNotifyChannel();
+      if (notifyChannel) {
+        await slack.chat
+          .postMessage({ channel: notifyChannel, text: msg })
+          .catch(() => {});
+      }
 
-      if (
-        destination &&
-        "chatId" in destination &&
-        "threadId" in destination &&
-        destination.threadId
-      ) {
+      // Also post to destination thread if present
+      if (destination?.chatId) {
         await slack.chat
           .postMessage({
             channel: destination.chatId,
