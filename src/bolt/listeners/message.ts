@@ -2,6 +2,7 @@ import type { App } from "@slack/bolt";
 import type { Inngest } from "inngest";
 import { isUserAllowed } from "@/lib/channels";
 import { getSession } from "@/lib/sessions";
+import { abort } from "@/lib/streams";
 
 export function buildEventData(
   channel: string,
@@ -31,9 +32,12 @@ export function registerMessageListeners(app: App, inngest: Inngest) {
     const text = (event.text ?? "").replace(/<@[A-Z0-9]+>/g, "").trim();
     if (!text) return;
 
+    const data = buildEventData(event.channel, text, event.ts, event.thread_ts);
+    abort(data.sessionKey);
+
     await inngest.send({
       name: "agent.message.received",
-      data: buildEventData(event.channel, text, event.ts, event.thread_ts),
+      data,
     });
   });
 
@@ -57,9 +61,12 @@ export function registerMessageListeners(app: App, inngest: Inngest) {
 
     const text = "text" in message ? (message.text ?? "") : "";
 
+    const data = buildEventData(message.channel, text, message.ts, threadTs);
+    abort(data.sessionKey);
+
     await inngest.send({
       name: "agent.message.received",
-      data: buildEventData(message.channel, text, message.ts, threadTs),
+      data,
     });
   });
 }
