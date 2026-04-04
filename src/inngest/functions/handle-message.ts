@@ -255,9 +255,10 @@ export const handleMessage = inngest.createFunction(
       }
       // Save session so next run can resume with context
       if (sessionId) {
+        const resolvedSessionId = sessionId;
         await step.run("save-session", async () => {
           await saveSession(sessionKey, {
-            sessionId: sessionId as string,
+            sessionId: resolvedSessionId,
             workspace,
           });
         });
@@ -309,9 +310,10 @@ export const handleMessage = inngest.createFunction(
     // --- Durable bookend: persist and notify ---
 
     if (sessionId) {
+      const resolvedSessionId = sessionId;
       await step.run("save-session", async () => {
         await saveSession(sessionKey, {
-          sessionId: sessionId as string,
+          sessionId: resolvedSessionId,
           workspace,
         });
       });
