@@ -36,11 +36,54 @@ export const handleMessage = inngest.createFunction(
       return getDisplayMode();
     });
 
+    const threadContext = await step.run("fetch-thread-context", async () => {
+      if (!session?.updatedAt) return "";
+
+      const oldest = String(
+        Math.floor(new Date(session.updatedAt).getTime() / 1000),
+      );
+
+      try {
+        const result = await slack.conversations.replies({
+          channel: destination.chatId,
+          ts: destination.threadId,
+          oldest,
+          inclusive: false,
+          limit: 50,
+        });
+
+        const STATUS_PATTERN = /^[🔧✅⏹]|tools? used\)/u;
+
+        const botMessages = (result.messages ?? [])
+          .filter(
+            (msg) =>
+              "bot_id" in msg && msg.text && !STATUS_PATTERN.test(msg.text),
+          )
+          .slice(-10)
+          .map((msg) => `- ${msg.text}`);
+
+        if (botMessages.length === 0) return "";
+
+        return [
+          "[Thread updates since your last response:",
+          ...botMessages,
+          "]",
+        ].join("\n");
+      } catch (err) {
+        console.warn("[agent] Failed to fetch thread context:", err);
+        return "";
+      }
+    });
+
     // --- Streaming zone (not in a step) ---
     // Three display modes:
     //   verbose  — every tool gets its own message (detailed, for debugging)
     //   compact  — one updating status message per tool batch, resets on text
     //   minimal  — text only, no tool messages
+
+    const augmentedMessage = threadContext
+      ? `${threadContext}\n\n${message}`
+      : message;
 
     let sessionId: string | undefined = session?.sessionId;
     let resultText = "";
@@ -53,7 +96,7 @@ export const handleMessage = inngest.createFunction(
 
     try {
       const stream = streamAgentSession({
-        message,
+        message: augmentedMessage,
         sessionId,
         workspace,
         destination,
