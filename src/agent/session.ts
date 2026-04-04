@@ -5,6 +5,7 @@ export interface SessionInput {
   sessionId?: string;
   workspace: string;
   destination?: { chatId: string; threadId?: string };
+  abortController?: AbortController;
 }
 
 function buildSystemAppend(destination?: {
@@ -51,23 +52,23 @@ function buildSystemAppend(destination?: {
 
   lines.push(
     "",
-    "## Content Capture — CRITICAL: THIS IS ASYNC",
+    "## Content Capture — FIRE AND FORGET",
     "",
     "kos capture triggers a background pipeline. It returns IMMEDIATELY.",
-    "The vault note WILL NOT EXIST for 5-30 seconds after the command returns.",
+    "The pipeline will write the vault note AND post a notification back to this Slack thread when done.",
     "",
     "ALWAYS use --full or --quick mode. ALWAYS include --channel and --thread flags:",
     `  kos capture <url> --full --channel ${destination?.chatId ?? "<chatId>"} --thread ${destination?.threadId ?? "<threadId>"}`,
     "",
-    "After running kos capture, you MUST follow this exact sequence:",
-    "1. Run: sleep 15",
-    '2. Run: obsidian read file="<Title>"',
-    "3. If the note doesn't exist yet, run: sleep 10",
-    '4. Run: obsidian read file="<Title>" one more time',
-    "5. Only AFTER you have successfully read the note, summarize it for the user",
+    "After running kos capture:",
+    "1. Tell the user the capture has been triggered",
+    "2. STOP. Do NOT poll, sleep, or check for the vault note",
+    "3. The pipeline will automatically notify this thread when it finishes",
     "",
-    "NEVER tell the user you captured something before verifying the note exists.",
+    "NEVER sleep or loop waiting for the note to appear.",
+    "NEVER try to read or verify the vault note after capturing.",
     "NEVER try to manually create or write the note yourself — the pipeline handles it.",
+    "If the user LATER asks you to read or summarize the note, THEN you can use obsidian read.",
     "",
     "Content types (auto-detected): article, youtube-video, youtube-channel, hacker-news, github-repo",
     "",
@@ -76,7 +77,8 @@ function buildSystemAppend(destination?: {
     "  kos capture --batch-file urls.txt  # Batch capture from file",
     "  kos capture --file /path/to/doc    # Capture a local file",
     "",
-    "After confirming the note exists, you can:",
+    "After the user confirms or asks about a captured note, you can:",
+    '  obsidian read file="Title"',
     '  obsidian append file="Title" content="Summary text"',
     '  obsidian property:set name=status value=done file="Title"',
   );
@@ -104,6 +106,7 @@ export async function* streamAgentSession(
     prompt: input.message,
     options: {
       ...(input.sessionId ? { resume: input.sessionId } : {}),
+      abortController: input.abortController,
       allowedTools: [
         "Read",
         "Write",
