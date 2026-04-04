@@ -37,18 +37,12 @@ export const handleMessage = inngest.createFunction(
     });
 
     const threadContext = await step.run("fetch-thread-context", async () => {
-      if (!session?.updatedAt) return "";
-
-      const oldest = String(
-        Math.floor(new Date(session.updatedAt).getTime() / 1000),
-      );
+      if (!session) return "";
 
       try {
         const result = await slack.conversations.replies({
           channel: destination.chatId,
           ts: destination.threadId,
-          oldest,
-          inclusive: false,
           limit: 50,
         });
 
