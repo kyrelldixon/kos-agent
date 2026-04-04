@@ -9,6 +9,7 @@ import {
 } from "@/lib/format";
 import { getSession, saveSession } from "@/lib/sessions";
 import { slack } from "@/lib/slack";
+import { register, unregister } from "@/lib/streams";
 
 export const handleMessage = inngest.createFunction(
   {
@@ -46,141 +47,179 @@ export const handleMessage = inngest.createFunction(
     let statusMessageTs: string | undefined;
     let toolCount = 0;
     let textPosted = false;
+    let aborted = false;
 
-    const stream = streamAgentSession({
-      message,
-      sessionId,
-      workspace,
-      destination,
-    });
+    const abortController = register(sessionKey);
 
-    for await (const msg of stream) {
-      if (msg.type === "system" && msg.subtype === "init") {
-        sessionId = msg.session_id;
-        console.log(`[agent] Session initialized: ${sessionId}`);
-      }
+    try {
+      const stream = streamAgentSession({
+        message,
+        sessionId,
+        workspace,
+        destination,
+        abortController,
+      });
 
-      if (msg.type === "assistant" && msg.message?.content) {
-        for (const part of msg.message.content) {
-          // --- Tool use ---
-          if (part.type === "tool_use") {
-            toolCount++;
-            const toolText = formatToolUse(
-              part.name,
-              part.input as Record<string, unknown>,
-            );
-            console.log(`[agent] ${toolText}`);
+      for await (const msg of stream) {
+        if (msg.type === "system" && msg.subtype === "init") {
+          sessionId = msg.session_id;
+          console.log(`[agent] Session initialized: ${sessionId}`);
+        }
 
-            if (channel === "slack" && displayMode !== "minimal") {
-              if (displayMode === "verbose") {
-                // Verbose: every tool gets its own message
-                await slack.chat
-                  .postMessage({
-                    channel: destination.chatId,
-                    text: toolText,
-                    thread_ts: destination.threadId,
-                  })
-                  .catch((err) =>
-                    console.warn(
-                      "tool message failed:",
-                      err.data?.error ?? err.message,
-                    ),
-                  );
-              } else {
-                // Compact: one updating status message
-                const statusText = `🔧 Working... (${toolText.replace(/^[^\s]+ /, "")})`;
-                if (!statusMessageTs) {
-                  const res = await slack.chat
+        if (msg.type === "assistant" && msg.message?.content) {
+          for (const part of msg.message.content) {
+            // --- Tool use ---
+            if (part.type === "tool_use") {
+              toolCount++;
+              const toolText = formatToolUse(
+                part.name,
+                part.input as Record<string, unknown>,
+              );
+              console.log(`[agent] ${toolText}`);
+
+              if (channel === "slack" && displayMode !== "minimal") {
+                if (displayMode === "verbose") {
+                  // Verbose: every tool gets its own message
+                  await slack.chat
                     .postMessage({
                       channel: destination.chatId,
-                      text: statusText,
+                      text: toolText,
                       thread_ts: destination.threadId,
                     })
-                    .catch((err) => {
+                    .catch((err) =>
                       console.warn(
-                        "status message failed:",
+                        "tool message failed:",
                         err.data?.error ?? err.message,
-                      );
-                      return undefined;
-                    });
-                  statusMessageTs = res?.ts;
+                      ),
+                    );
                 } else {
+                  // Compact: one updating status message
+                  const statusText = `🔧 Working... (${toolText.replace(/^[^\s]+ /, "")})`;
+                  if (!statusMessageTs) {
+                    const res = await slack.chat
+                      .postMessage({
+                        channel: destination.chatId,
+                        text: statusText,
+                        thread_ts: destination.threadId,
+                      })
+                      .catch((err) => {
+                        console.warn(
+                          "status message failed:",
+                          err.data?.error ?? err.message,
+                        );
+                        return undefined;
+                      });
+                    statusMessageTs = res?.ts;
+                  } else {
+                    await slack.chat
+                      .update({
+                        channel: destination.chatId,
+                        ts: statusMessageTs,
+                        text: statusText,
+                      })
+                      .catch((err) =>
+                        console.warn(
+                          "status update failed:",
+                          err.data?.error ?? err.message,
+                        ),
+                      );
+                  }
+                }
+              }
+            }
+
+            // --- Text ---
+            if (part.type === "text" && part.text?.trim()) {
+              console.log(`[agent] Assistant text (${part.text.length} chars)`);
+
+              if (channel === "slack") {
+                // Compact: finalize the status message before posting text
+                if (
+                  displayMode === "compact" &&
+                  statusMessageTs &&
+                  toolCount > 0
+                ) {
                   await slack.chat
                     .update({
                       channel: destination.chatId,
                       ts: statusMessageTs,
-                      text: statusText,
+                      text: `🔧 Done (${toolCount} tools used)`,
                     })
                     .catch((err) =>
                       console.warn(
-                        "status update failed:",
+                        "status finalize failed:",
+                        err.data?.error ?? err.message,
+                      ),
+                    );
+                  // Reset for next batch
+                  statusMessageTs = undefined;
+                  toolCount = 0;
+                }
+
+                const formatted = markdownToSlackMrkdwn(part.text);
+                const chunks = splitMessage(formatted);
+                for (const chunk of chunks) {
+                  await slack.chat
+                    .postMessage({
+                      channel: destination.chatId,
+                      text: chunk,
+                      thread_ts: destination.threadId,
+                    })
+                    .catch((err) =>
+                      console.warn(
+                        "text message failed:",
                         err.data?.error ?? err.message,
                       ),
                     );
                 }
+                textPosted = true;
               }
             }
           }
+        }
 
-          // --- Text ---
-          if (part.type === "text" && part.text?.trim()) {
-            console.log(`[agent] Assistant text (${part.text.length} chars)`);
-
-            if (channel === "slack") {
-              // Compact: finalize the status message before posting text
-              if (
-                displayMode === "compact" &&
-                statusMessageTs &&
-                toolCount > 0
-              ) {
-                await slack.chat
-                  .update({
-                    channel: destination.chatId,
-                    ts: statusMessageTs,
-                    text: `🔧 Done (${toolCount} tools used)`,
-                  })
-                  .catch((err) =>
-                    console.warn(
-                      "status finalize failed:",
-                      err.data?.error ?? err.message,
-                    ),
-                  );
-                // Reset for next batch
-                statusMessageTs = undefined;
-                toolCount = 0;
-              }
-
-              const formatted = markdownToSlackMrkdwn(part.text);
-              const chunks = splitMessage(formatted);
-              for (const chunk of chunks) {
-                await slack.chat
-                  .postMessage({
-                    channel: destination.chatId,
-                    text: chunk,
-                    thread_ts: destination.threadId,
-                  })
-                  .catch((err) =>
-                    console.warn(
-                      "text message failed:",
-                      err.data?.error ?? err.message,
-                    ),
-                  );
-              }
-              textPosted = true;
-            }
+        if (msg.type === "result") {
+          const resultMsg = msg as SDKResultSuccess;
+          console.log(
+            `[agent] Result: ${msg.subtype}, text length: ${(resultMsg.result ?? "").length}`,
+          );
+          if (msg.subtype === "success") {
+            resultText = resultMsg.result ?? "";
           }
         }
       }
-
-      if (msg.type === "result") {
-        const resultMsg = msg as SDKResultSuccess;
-        console.log(
-          `[agent] Result: ${msg.subtype}, text length: ${(resultMsg.result ?? "").length}`,
-        );
-        if (msg.subtype === "success") {
-          resultText = resultMsg.result ?? "";
-        }
+    } catch (err) {
+      if (abortController.signal.aborted) {
+        console.log(`[agent] Stream aborted for session: ${sessionKey}`);
+        aborted = true;
+      } else {
+        throw err;
       }
+    } finally {
+      unregister(sessionKey);
+    }
+
+    if (aborted) {
+      // Update status message to show interruption, then exit
+      if (statusMessageTs && channel === "slack") {
+        await slack.chat
+          .update({
+            channel: destination.chatId,
+            ts: statusMessageTs,
+            text: `⏹ Interrupted`,
+          })
+          .catch(() => {});
+      }
+      // Save session so next run can resume with context
+      if (sessionId) {
+        await step.run("save-session", async () => {
+          await saveSession(sessionKey, {
+            sessionId: sessionId as string,
+            workspace,
+          });
+        });
+      }
+      return { status: "interrupted", sessionKey };
     }
 
     // Compact: finalize status message if no text came after last tool batch
