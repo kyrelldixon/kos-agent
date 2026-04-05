@@ -9,9 +9,9 @@ export interface VoiceMemoNoteInput {
 }
 
 const DEFAULT_NAME_PATTERNS = [
-  /^\d{8}\s+\d{6}\.m4a$/i, // 20260404 142345.m4a
-  /^New Recording(\s+\d+)?\.m4a$/i, // New Recording.m4a, New Recording 3.m4a
-  /^Recording(\s+\d+)?\.m4a$/i, // Recording.m4a
+  /^\d{8}\s+\d{6}\.[^.]+$/i, // 20260404 142345.m4a (or any extension)
+  /^New Recording(\s+\d+)?\.[^.]+$/i, // New Recording.m4a, New Recording 3.mp3
+  /^Recording(\s+\d+)?\.[^.]+$/i, // Recording.m4a, Recording.wav
 ];
 
 function formatDate(): string {
