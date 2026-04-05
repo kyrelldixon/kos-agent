@@ -81,6 +81,15 @@ function buildSystemAppend(destination?: {
     '  obsidian read file="Title"',
     '  obsidian append file="Title" content="Summary text"',
     '  obsidian property:set name=status value=done file="Title"',
+    "",
+    "## Voice Memo Transcription",
+    "",
+    "The transcribe CLI transcribes audio files to text via ElevenLabs.",
+    "",
+    "  transcribe file <path>",
+    "",
+    "Output is printed to stdout. Use for quick transcription of audio files.",
+    "For iPhone voice memos, the pipeline handles this automatically via the Apple Shortcut.",
   );
 
   return lines.join("\n");
