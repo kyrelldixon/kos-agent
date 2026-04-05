@@ -6,4 +6,6 @@ export { handleCapture } from "@/inngest/functions/handle-capture";
 export { handleFailure } from "@/inngest/functions/handle-failure";
 export { handleMessage } from "@/inngest/functions/handle-message";
 export { handleScheduledJob } from "@/inngest/functions/handle-scheduled-job";
+export { handleVoiceMemo } from "@/inngest/functions/handle-voice-memo";
 export { sendReply } from "@/inngest/functions/send-reply";
+export { transcribeElevenlabs } from "@/inngest/functions/transcribe-elevenlabs";

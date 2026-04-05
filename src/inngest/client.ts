@@ -5,6 +5,7 @@ import {
   CaptureEventInngestSchema,
   CaptureFileEventSchema,
 } from "@/capture/schema";
+import { VoiceMemoEventSchema } from "@/voice-memo/schema";
 
 export const inngest = new Inngest({ id: "agent-system" });
 
@@ -70,3 +71,8 @@ export const agentCaptureDecision = eventType("agent.capture.decision", {
 export type AgentCaptureDecisionData = z.infer<
   typeof agentCaptureDecision.schema
 >;
+
+export const voiceMemoDetected = eventType("voice.memo.detected", {
+  schema: VoiceMemoEventSchema,
+});
+export type VoiceMemoData = z.infer<typeof voiceMemoDetected.schema>;

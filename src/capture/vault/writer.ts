@@ -15,6 +15,7 @@ export async function writeVaultNote(
   title: string,
   content: string,
   url?: string,
+  filePath?: string,
 ): Promise<string> {
   const sourcesDir = join(vaultDir, "sources");
   await mkdir(sourcesDir, { recursive: true });
@@ -28,10 +29,39 @@ export async function writeVaultNote(
     }
   }
 
+  // Idempotency: check if a note with this filePath already exists
+  if (!url && filePath) {
+    const existing = await findExistingNoteByFilePath(vaultDir, filePath);
+    if (existing) {
+      await writeFile(existing, content, "utf-8");
+      return existing;
+    }
+  }
+
   const filename = sanitizeFilename(title);
   const notePath = join(sourcesDir, `${filename}.md`);
   await writeFile(notePath, content, "utf-8");
   return notePath;
+}
+
+export async function findExistingNoteByFilePath(
+  vaultDir: string,
+  filePath: string,
+): Promise<string | undefined> {
+  const sourcesDir = join(vaultDir, "sources");
+  try {
+    const files = await readdir(sourcesDir);
+    for (const file of files) {
+      if (!file.endsWith(".md")) continue;
+      const fullPath = join(sourcesDir, file);
+      const content = await readFile(fullPath, "utf-8");
+      const match = content.match(/^file_path:\s*"([^"]*)"$/m);
+      if (match?.[1] === filePath) return fullPath;
+    }
+  } catch {
+    // sources/ dir might not exist yet
+  }
+  return undefined;
 }
 
 export async function findExistingNoteByUrl(
