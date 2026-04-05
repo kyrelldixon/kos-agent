@@ -15,9 +15,11 @@ import {
   handleFailure,
   handleMessage,
   handleScheduledJob,
+  handleVoiceMemo,
   jinaExtraction,
   localExtraction,
   sendReply,
+  transcribeElevenlabs,
 } from "@/inngest/functions/index";
 import { syncAllJobs } from "@/jobs/sync";
 import { getOrCreateDeploySecret } from "@/lib/deploy/secret";
@@ -25,6 +27,7 @@ import { createCaptureRoutes } from "@/routes/capture";
 import { createConfigRoutes } from "@/routes/config";
 import { createHooksRoutes } from "@/routes/hooks";
 import { createJobsRoutes } from "@/routes/jobs";
+import { createVoiceMemoRoutes } from "@/routes/voice-memo";
 import { createWorkspacesRoutes } from "@/routes/workspaces";
 
 // Must delete before Agent SDK query() — SDK detects Claude Code env and changes behavior.
@@ -55,7 +58,9 @@ const functions = [
   handleFailure,
   handleMessage,
   handleScheduledJob,
+  handleVoiceMemo,
   sendReply,
+  transcribeElevenlabs,
 ];
 
 const hono = new Hono();
@@ -98,6 +103,7 @@ hono.route("/api/config", createConfigRoutes());
 hono.route("/api/workspaces", createWorkspacesRoutes());
 hono.route("/api/jobs", createJobsRoutes());
 hono.route("/api/capture", createCaptureRoutes(inngest));
+hono.route("/api/voice-memo", createVoiceMemoRoutes(inngest));
 
 // Start HTTP server — bind to localhost only (Cloudflare Tunnel connects locally)
 Bun.serve({
