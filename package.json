@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "INNGEST_DEV=1 bunx varlock run -- bun --watch src/index.ts",
     "test": "bun test",
-    "lint": "bunx biome check .",
+    "lint": "bunx biome check --error-on-warnings .",
     "format": "bunx biome format --write .",
     "typecheck": "tsc --noEmit"
   },

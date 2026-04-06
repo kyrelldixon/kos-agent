@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   ALLOWED_EXTENSIONS,
-  MAX_FILE_SIZE,
+  CONTENT_TYPE_TO_EXTENSION,
+  extensionFromContentType,
   VoiceMemoEventSchema,
   VoiceMemoUploadSchema,
 } from "./schema";
@@ -38,6 +39,40 @@ describe("VoiceMemoUploadSchema", () => {
         fileSize: 1024,
       });
       expect(result.success).toBe(true);
+    }
+  });
+});
+
+describe("extensionFromContentType", () => {
+  test("maps iOS m4a content types", () => {
+    expect(extensionFromContentType("audio/x-m4a")).toBe(".m4a");
+    expect(extensionFromContentType("audio/mp4")).toBe(".m4a");
+    expect(extensionFromContentType("audio/m4a")).toBe(".m4a");
+  });
+
+  test("maps mp3/wav/webm content types", () => {
+    expect(extensionFromContentType("audio/mpeg")).toBe(".mp3");
+    expect(extensionFromContentType("audio/wav")).toBe(".wav");
+    expect(extensionFromContentType("audio/webm")).toBe(".webm");
+  });
+
+  test("strips parameters and normalizes case", () => {
+    expect(extensionFromContentType("AUDIO/X-M4A; charset=binary")).toBe(
+      ".m4a",
+    );
+  });
+
+  test("returns null for unsupported or missing types", () => {
+    expect(extensionFromContentType(undefined)).toBeNull();
+    expect(extensionFromContentType("")).toBeNull();
+    expect(extensionFromContentType("application/json")).toBeNull();
+    expect(extensionFromContentType("image/png")).toBeNull();
+  });
+
+  test("map covers all allowed extensions", () => {
+    const mapped = new Set(Object.values(CONTENT_TYPE_TO_EXTENSION));
+    for (const ext of ALLOWED_EXTENSIONS) {
+      expect(mapped.has(ext)).toBe(true);
     }
   });
 });

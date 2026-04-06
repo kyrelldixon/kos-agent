@@ -1,13 +1,9 @@
 import { Hono } from "hono";
 import { detectContentType } from "@/capture/detect-type";
 import { CaptureRequestSchema } from "@/capture/schema";
+import type { InngestSender } from "@/lib/inngest-sender";
 
-// The inngest parameter is typed loosely to avoid importing the full Inngest type
-// which would create a circular dependency risk. The route only needs .send()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function createCaptureRoutes(inngest: {
-  send: (events: any) => Promise<unknown>;
-}): Hono {
+export function createCaptureRoutes(inngest: InngestSender): Hono {
   const app = new Hono();
 
   app.post("/", async (c) => {

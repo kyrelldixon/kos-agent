@@ -69,7 +69,7 @@ export function buildVoiceMemoNote(input: VoiceMemoNoteInput): string {
     lines.push("", input.transcript);
   }
 
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}\n`;
 }
 
 export { sanitizeFilename };

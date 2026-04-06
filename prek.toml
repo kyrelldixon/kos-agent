@@ -17,7 +17,7 @@ hooks = [
     id = "biome-check",
     name = "Biome check",
     language = "system",
-    entry = "bunx biome check --write",
+    entry = "bunx biome check --write --error-on-warnings",
     files = "\\.(ts|tsx|js|jsx|json)$",
     pass_filenames = true,
   },
