@@ -235,25 +235,10 @@ export const handleCapture = inngest.createFunction(
       extractionMethod = "github";
     } else {
       // Article, HN, or unknown — use tiered extraction
+      // For HN, use the linked article URL from metadata (already fetched via Algolia)
       const extractUrl =
-        type === "hacker-news"
-          ? await step.run("get-hn-article-url", async () => {
-              const itemId = new URL(url).searchParams.get("id");
-              if (!itemId) return url;
-              const res = await fetch(
-                `https://hn.algolia.com/api/v1/items/${itemId}`,
-              );
-              const data: unknown = await res.json();
-              const parsed =
-                typeof data === "object" && data !== null && "url" in data
-                  ? data
-                  : null;
-              return (
-                (parsed && typeof parsed.url === "string"
-                  ? parsed.url
-                  : undefined) ?? url
-              );
-            })
+        type === "hacker-news" && metadata.hnLinkedUrl
+          ? metadata.hnLinkedUrl
           : url;
 
       // Tier 1: Jina
@@ -348,6 +333,7 @@ export const handleCapture = inngest.createFunction(
         duration: metadata.duration,
         views: metadata.views,
         hnUrl: metadata.hnUrl,
+        hnLinkedUrl: metadata.hnLinkedUrl,
         hnPoints: metadata.hnPoints,
         hnComments: metadata.hnComments,
         handle: metadata.handle,

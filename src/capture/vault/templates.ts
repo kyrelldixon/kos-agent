@@ -16,6 +16,7 @@ export interface VaultNoteInput {
   views?: number;
   // HN-specific
   hnUrl?: string;
+  hnLinkedUrl?: string;
   hnPoints?: number;
   hnComments?: number;
   // Twitter-specific
@@ -80,6 +81,7 @@ function buildFrontmatter(input: VaultNoteInput): string {
 
   if (input.type === "hacker-news") {
     if (input.hnUrl) lines.push(`hn_url: "${input.hnUrl}"`);
+    if (input.hnLinkedUrl) lines.push(`hn_linked_url: "${input.hnLinkedUrl}"`);
     if (input.hnPoints !== undefined)
       lines.push(`hn_points: ${input.hnPoints}`);
     if (input.hnComments !== undefined)
@@ -102,7 +104,7 @@ function buildFrontmatter(input: VaultNoteInput): string {
     if (input.filePath) lines.push(`file_path: "${input.filePath}"`);
   }
 
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}\n`;
 }
 
 function buildBody(input: VaultNoteInput): string {
