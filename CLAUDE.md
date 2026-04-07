@@ -108,6 +108,39 @@ The capture pipeline takes URLs, extracts content, and writes Obsidian vault not
 ### Content types:
 article, youtube-video, youtube-channel, hacker-news, github-repo, twitter (placeholder), file
 
+## Voice Memo Pipeline
+
+A separate pipeline for transcribing voice memos. Distinct from the URL capture pipeline because the input is audio (not text/HTML), the only "extraction method" is ElevenLabs Speech-to-Text, and there's no triage step — voice memos auto-process.
+
+### Data flow
+
+```
+iPhone Voice Memo
+    → Apple Shortcut (share sheet)
+    → HTTPS POST to https://kos.kyrelldixon.com/api/voice-memo
+        (CF Access Service Token → Cloudflare Tunnel → Mac Mini)
+    → kos-agent saves to ~/.kos/agent/captures/voice-memo-{timestamp}/
+    → Inngest event: voice.memo.detected
+    → Transcribe (ElevenLabs scribe_v2)
+    → Write vault note to ~/kyrell-os-vault/sources/
+    → Slack notification
+    → Cleanup capture directory
+```
+
+### Key infra facts (not derivable from code)
+
+- **Upload route accepts a raw audio body**, not multipart/form-data. The `Content-Type` header (`audio/x-m4a`, `audio/mpeg`, `audio/wav`, `audio/webm`) determines the file extension. Optional `X-Filename` header preserves a custom name. **Why raw body:** iOS Shortcuts UI cannot reliably attach a variable as a file in a multipart form field — the variable picker shows "Shortcut Input" but tapping it doesn't apply. Raw body sidesteps the issue. Don't "fix" this back to multipart without re-confirming Shortcuts UI behavior.
+- **Auth chain:** Cloudflare Access wraps the public endpoint with a Service Token (CF-Access-Client-Id + CF-Access-Client-Secret headers). The Apple Shortcut sends both. There is no app-level auth — CF Access is the only gate.
+- **Capture directory lifecycle:** Each upload creates a unique `~/.kos/agent/captures/voice-memo-{timestamp}/` directory. The orchestrator deletes it after successful transcription. On failure (transcription returns empty), the directory is also cleaned up but a note with `status: transcription-failed` still gets written so the audio attempt is recorded.
+- **Vault note location:** `~/kyrell-os-vault/sources/` with `source_type: voice-memo` in frontmatter. Idempotency comes from scanning existing notes for matching `file_path` frontmatter and overwriting in place — re-processing the same memo updates rather than duplicates.
+- **Singleton dedup:** Inngest singleton keyed on `event.data.captureKey` (cancel mode). CaptureKey is `${timestamp}-${fileName}` so concurrent uploads of the same generic Voice Memos default name don't collide.
+- **ElevenLabs API key:** Stored in 1Password (`op://Developer/ElevenLabs/token`), injected via varlock at runtime as `ELEVENLABS_API_KEY`. Same secret pattern as the Slack credentials.
+- **Manual `transcribe` CLI** (in kos-kit) exists for one-off audio files outside the iPhone flow. Same ElevenLabs wrapper, no Inngest, no vault writing — just stdout + pbcopy.
+
+### Sources doctrine
+
+Voice memos use the same `[[Sources]]` category as URL captures and appear in the Sources base. The "Voice Memos" view filters on `source_type = "voice-memo"`. Treat voice memos as raw material — do not auto-summarize or extract topics in the pipeline. Body is raw transcript only; downstream processing is a separate concern.
+
 ## Commits
 
 - Never include AI attribution lines
