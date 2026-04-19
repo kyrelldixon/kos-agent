@@ -1,3 +1,4 @@
+import { YoutubeTranscript } from "youtube-transcript";
 import { z } from "zod";
 
 const YtDlpVideoSchema = z.object({
@@ -8,38 +9,12 @@ const YtDlpVideoSchema = z.object({
 
 export async function extractYouTubeTranscript(url: string): Promise<string> {
   try {
-    // yt-dlp can extract auto-generated subtitles
-    const proc = Bun.spawn(
-      [
-        "yt-dlp",
-        "--write-auto-sub",
-        "--sub-lang",
-        "en",
-        "--skip-download",
-        "--sub-format",
-        "vtt",
-        "-o",
-        "/tmp/kos-yt-%(id)s",
-        url,
-      ],
-      { stdout: "pipe", stderr: "pipe" },
-    );
-    await proc.exited;
+    const entries = await YoutubeTranscript.fetchTranscript(url, {
+      lang: "en",
+    });
+    if (!entries.length) return "";
 
-    // Find the subtitle file
-    const videoId = extractVideoId(url);
-    if (!videoId) return "";
-
-    const vttPath = `/tmp/kos-yt-${videoId}.en.vtt`;
-    const file = Bun.file(vttPath);
-    if (!(await file.exists())) return "";
-
-    const vttContent = await file.text();
-    // Clean up temp file
-    const { rm: rmFile } = await import("node:fs/promises");
-    await rmFile(vttPath).catch(() => {});
-
-    return parseVttToTranscript(vttContent);
+    return entries.map((entry) => entry.text).join(" ");
   } catch {
     return "";
   }
@@ -84,41 +59,4 @@ export async function listChannelVideos(
   } catch {
     return [];
   }
-}
-
-function extractVideoId(url: string): string | undefined {
-  const parsed = new URL(url);
-  if (parsed.hostname === "youtu.be") {
-    return parsed.pathname.slice(1);
-  }
-  return parsed.searchParams.get("v") ?? undefined;
-}
-
-function parseVttToTranscript(vtt: string): string {
-  const lines = vtt.split("\n");
-  const textLines: string[] = [];
-  let lastText = "";
-
-  for (const line of lines) {
-    // Skip VTT header, timestamps, and empty lines
-    if (
-      line.startsWith("WEBVTT") ||
-      line.startsWith("Kind:") ||
-      line.startsWith("Language:") ||
-      line.includes("-->") ||
-      line.trim() === "" ||
-      /^\d+$/.test(line.trim())
-    ) {
-      continue;
-    }
-
-    // Remove VTT formatting tags
-    const clean = line.replace(/<[^>]+>/g, "").trim();
-    if (clean && clean !== lastText) {
-      textLines.push(clean);
-      lastText = clean;
-    }
-  }
-
-  return textLines.join("\n");
 }
