@@ -83,16 +83,18 @@ The Mac Mini is the "edge with local files." Convex is the "cloud co-processor f
 | Debug UI | Browser (built artifact served by Hono) | Real-time view via Convex reactive queries |
 | Vault | Mac Mini disk | Markdown files; agent writes via local filesystem |
 
-### Inngest is removed entirely
+### Inngest stays — migrate self-hosted to Cloud
 
-Self-hosted Inngest goes away. So does Inngest Cloud — we don't migrate to it. The pipelines (`handle-capture`, `handle-voice-memo`, `extract-jina`, `extract-local`, `extract-cf-browser`, `transcribe-elevenlabs`) become **plain async functions** called directly from Hono routes or Bolt listeners. No `step.run`, no `step.invoke`, no `step.waitForEvent`. The reasons:
+The pipelines (`handle-capture`, `handle-voice-memo`, `extract-jina`, `extract-local`, `extract-cf-browser`, `transcribe-elevenlabs`) **stay as Inngest functions**. They work, they have real durability primitives (`step.invoke` for tier fallback, `step.waitForEvent` for the 4h triage gate, retry-per-step on transient failures), and rewriting them as plain async would lose those properties for no real gain.
 
-- Volume is low (personal use). No need for distributed execution.
-- Vault writes must happen on the Mac Mini anyway, so a single-process pipeline is simpler.
-- Convex's reactivity replaces Inngest's dashboard for observability.
-- Reduces one whole class of dependency (no event keys, signing keys, function manifest sync, CF Access bypass for /api/inngest, etc.).
+What changes: **migrate the runtime from self-hosted Inngest to Inngest Cloud**, per the existing migration plan. Self-hosted is the source of unreliability; Cloud removes that. The migration is a configuration swap (event/signing keys, CF Access bypass for `/api/inngest`), not a code rewrite.
 
-The capture-pipeline triage `step.waitForEvent` becomes an in-memory `Map<captureId, Promise>` resolved by the Slack interaction handler when the user clicks a triage button. If the box restarts mid-triage, the user re-triggers — acceptable for personal use.
+**The two-plane split is the load-bearing decision:**
+
+- **Inngest = durable workflows plane.** Capture, voice memo, future cold-email/SEO pipelines. Inngest's dashboard handles workflow observability.
+- **Convex = state + agent observability plane.** Sessions, messages, executor logs, debug UI. Convex's reactivity handles "what is the agent doing across turns and tool calls."
+
+The two planes are coupled via a single `inflightWorkflows` row written from the dispatcher/executor when it calls `inngest.send`. That's the entire correlation surface — see Schema section.
 
 ## Convex schema
 
@@ -122,10 +124,12 @@ Adapted from Boop's `convex/schema.ts` (`/Users/kyrelldixon/projects/boop-agent/
 
 ### Add for our domain
 
-- **`vaultNotes`** — pointers to written notes, keyed by `filePath` (matches the existing idempotency rule in `src/capture/vault/writer.ts`). Lets the debug UI show "captures this week."
-- **`captures`** — one row per `kos capture` invocation. Status lifecycle (`triaging → extracting → writing → notified`), source URL/file, content type, extraction method, related `vaultNoteId`. Replaces the in-memory captureKey state.
-- **`voiceMemos`** — one row per voice memo. Status (`uploading → transcribing → writing → done`), duration, related `vaultNoteId`. Replaces the in-memory captureKey state.
-- **`slackMessages`** (optional) — for Slack delivery dedup if we observe duplicates. Otherwise skip.
+- **`inflightWorkflows`** — minimal in-flight tracker for Inngest dispatches. Schema: `eventId` (from `inngest.send().ids[0]`), `eventName`, `triggeredBy` (`agentId` + `conversationId`), `context` (human-readable label like the URL being captured), `startedAt`, `status` (`dispatched | done`). Indexed by status. **Written only from the agent side** — the dispatcher/executor inserts a row when calling `inngest.send`. The debug UI shows rows under 5 minutes old as "in flight" and lets older rows fall off automatically; no completion callback required from the Inngest function. This is the entire cross-system surface area.
+
+### Explicitly NOT added
+
+- No `captures`, `voiceMemos`, or `vaultNotes` tables. Inngest functions stay self-contained — they extract, write the vault file, post Slack notification, done. They don't touch Convex.
+- Reasoning: the only correlation we want today is "what is the agent currently doing" across both planes. `inflightWorkflows` gives that. Anything else (cost-by-pipeline aggregation, "captures this week" view, vault search via Convex) is deferred to a future client-ready phase.
 
 ### Indexes
 
@@ -161,53 +165,31 @@ Following Boop's pattern (`/Users/kyrelldixon/projects/boop-agent/server/interac
 
 Boop's executor leans on Composio for breadth (1000+ toolkits). We don't have that breadth need yet. Each of our executors gets a small, hand-written tool list. When we want Gmail or Notion later, we add a Composio-backed executor without disturbing the others.
 
-## Pipelines (plain async, no Inngest)
+## Pipelines (Inngest, unchanged)
 
-### Capture pipeline (replaces `src/inngest/functions/handle-capture.ts`)
+The capture pipeline (`src/inngest/functions/handle-capture.ts`) and voice-memo pipeline (`src/inngest/functions/handle-voice-memo.ts`) stay as Inngest functions. Their internal logic — content-type detection, triage `step.waitForEvent`, tiered extraction via `step.invoke`, vault write, Slack notify — is preserved. Existing extractor modules (`src/capture/extract/*`) and the vault writer carry over unchanged.
 
-Becomes a plain async function `captureUrl(url, mode, destination)` invoked from:
-- Hono route `POST /api/capture` (called by `kos capture` CLI)
-- Tool `trigger_capture` on the `capture-agent` executor
+The only change is how they're triggered from the agent layer:
+- The `capture-agent` executor's `trigger_capture(url, mode)` tool calls `inngest.send({ name: "agent.capture.requested", data: { ... } })` and inserts an `inflightWorkflows` row with the returned event ID.
+- Same pattern for voice-memo if the agent ever wants to re-trigger transcription.
 
-Internal flow (essentially the existing Inngest function with `step.run` removed):
-
-1. Detect content type
-2. If mode = triage: post Slack triage buttons, await user decision via in-memory pending-decisions Map (timeout 4h)
-3. Extract metadata
-4. Tiered extraction: try Jina → fallback Local (Readability) → fallback CF Browser
-5. (YouTube channel) fan-out by recursing into `captureUrl` for each video
-6. Write vault note via existing `writeVaultNote` + `buildVaultNote`
-7. Insert/update `captures` row in Convex (status: `done` or `extraction-failed`)
-8. Notify Slack (with same `buildNotificationMessage`)
-
-Existing extractor modules (`src/capture/extract/*`) carry over unchanged. The vault writer carries over unchanged.
-
-### Voice memo pipeline (replaces `src/inngest/functions/handle-voice-memo.ts`)
-
-Becomes a plain async function `voiceMemo(filePath, fileName, captureKey)` invoked from `POST /api/voice-memo` (the Apple Shortcuts endpoint).
-
-1. Insert `voiceMemos` row (status: `transcribing`)
-2. Call ElevenLabs (existing `transcribeElevenlabs` logic, no `step.invoke` wrapping)
-3. Update row with transcript + duration
-4. Write vault note via existing `writeVaultNote`
-5. Update row (status: `done`, link `vaultNoteId`)
-6. Slack notification
-7. Cleanup capture directory
-
-The `singleton: cancel` Inngest pattern (dedup by captureKey for concurrent uploads) is replaced by an in-memory `Set<captureKey>` guard. The first request claims the key, concurrent requests return early. Personal-scale dedup is sufficient.
+The `kos capture` CLI keeps sending Inngest events directly (existing pattern).
 
 ### Agent message handler (replaces `src/inngest/functions/handle-message.ts`)
 
-Becomes a plain async function called directly from the Bolt listener. The function:
+The Bolt listener calls the dispatcher **directly** instead of routing through Inngest. The agent path is in-process; only the durable workflows (capture, voice memo) go through Inngest. Flow:
 
-1. Aborts any active stream for this `sessionKey` (existing `src/lib/streams.ts` logic carries over unchanged)
-2. Inserts a `messages` row in Convex (user turn)
-3. Fetches recent thread context (existing `fetch-thread-context` logic carries over)
-4. Calls dispatcher (`handleUserMessage`) which may spawn executors
-5. Streams agent text back to Slack (existing chunking + markdown conversion)
-6. Inserts a `messages` row (assistant turn) on completion
+1. Bolt listener receives a Slack message
+2. Aborts any active stream for this `sessionKey` (existing `src/lib/streams.ts` logic carries over unchanged)
+3. Inserts a `messages` row in Convex (user turn)
+4. Fetches recent thread context (existing `fetch-thread-context` logic carries over)
+5. Calls dispatcher (`handleUserMessage`) which may spawn executors; executor may call `inngest.send` to dispatch a workflow + write `inflightWorkflows` row
+6. Streams agent text back to Slack (existing chunking + markdown conversion)
+7. Inserts a `messages` row (assistant turn) on completion
 
 The interruption pattern shipped 2026-04-04 (`src/lib/streams.ts`) keeps working — it's already in-process and unrelated to Inngest.
+
+**Why move the agent loop off Inngest** (while keeping pipelines on Inngest): the agent loop is single-process by nature (Claude SDK subprocess, in-process abort controller, Bolt's WebSocket-style socket-mode connection). It never benefited from Inngest's durability — a server restart kills the SDK subprocess regardless. Removing the Inngest hop saves ~50ms per turn and eliminates one source of state spread (handle-message session vs Bolt session vs Inngest event). The pipelines, by contrast, are exactly the kind of multi-step, retry-able, sometimes-long-running work Inngest is designed for.
 
 ## Bolt and Slack layer
 
@@ -347,35 +329,27 @@ Ordered so each phase ends in a working system. No big-bang cutover.
 6. Verify: open `https://kos.kyrelldixon.com/debug`, see live agent activity
 7. Commit: "feat(debug): real-time debug dashboard"
 
-### Phase 5 — Convert pipelines to plain async (Day 6-8)
+### Phase 5 — Migrate Inngest self-hosted to Cloud (Day 6)
 
-1. Convert `handle-capture` → `src/pipelines/capture.ts` plain async function
-2. Convert `handle-voice-memo` → `src/pipelines/voiceMemo.ts` plain async function
-3. Replace `step.invoke` extractor calls with direct function calls
-4. Replace triage `step.waitForEvent` with in-memory pending-decisions Map
-5. Add `captures` and `voiceMemos` Convex tables, write from the pipelines
-6. Update `kos capture` CLI to call `POST /api/capture` instead of sending Inngest events
-7. Verify: capture flow + voice memo flow + Slack triage all work
-8. Commit: "feat(pipelines): convert capture and voice-memo to plain async"
+Per the existing migration plan in the other thread, with the three pre-flight items I added (kos CLI env, deploy.sh varlock, smoke-test event name). Self-contained, doesn't depend on Phases 1-4. Could even run earlier, but lands cleanest after the agent layer is on Convex so the `inflightWorkflows` writes work end-to-end.
 
-### Phase 6 — Retire Inngest (Day 8)
+1. Sign up Inngest Cloud, copy keys to 1Password
+2. Pre-flight checks (kos CLI grep, deploy.sh varlock, smoke-test event name, function inventory)
+3. Update varlock schema with `INNGEST_EVENT_KEY` + `INNGEST_SIGNING_KEY`
+4. Backup plist, remove `INNGEST_DEV=1` from kos-agent plist
+5. CF Access bypass for `/api/inngest`
+6. Sync clock, bootout self-hosted Inngest, restart kos-agent, sync Inngest Cloud
+7. Smoke test + Slack DM verification + capture verification
+8. Cleanup: delete self-hosted Inngest plist, drop `inngest.kyrelldixon.com` tunnel hostname
 
-1. Remove `inngest` dependency from `package.json`
-2. Delete `src/inngest/` directory
-3. Bootout self-hosted Inngest launchd: `sudo launchctl bootout system/com.kyrelldixon.inngest-dev`
-4. Delete `/Library/LaunchDaemons/com.kyrelldixon.inngest-dev.plist`
-5. Delete `ops/com.kyrelldixon.inngest-dev.plist`
-6. Drop the `inngest.kyrelldixon.com` tunnel hostname from `~/.cloudflared/config.yml` on Mac Mini
-7. Commit: "chore: remove Inngest"
+### Phase 6 — Update CLAUDE.md and ARCHITECTURE.md (Day 6)
 
-### Phase 7 — Update CLAUDE.md and ARCHITECTURE.md (Day 8)
-
-1. Strike the Inngest sections in `CLAUDE.md`
-2. Document the new architecture (dispatcher/executor, Convex, plain async pipelines)
+1. Document the new two-plane architecture in `CLAUDE.md` (Inngest = workflows, Convex = state/agent observability, dispatcher/executor split)
+2. Update Inngest section to reflect Cloud (not self-hosted) and that the agent loop runs in-process
 3. Reflect the change in any of `docs/agent-system-exploration/ARCHITECTURE.md` decisions that are now decided
-4. Commit: "docs: update architecture for Convex restructure"
+4. Commit: "docs: update architecture for Convex + Inngest Cloud restructure"
 
-Total: ~8 days of focused work, end-to-end. Each phase ends in a working system, so the work can be paused between phases.
+Total: ~6 days of focused work, end-to-end. Each phase ends in a working system, so the work can be paused between phases.
 
 ## Risks
 
@@ -383,13 +357,13 @@ Total: ~8 days of focused work, end-to-end. Each phase ends in a working system,
 
 The schema is going to change as we discover what queries the debug UI actually wants. Convex handles schema migrations gracefully (dev deployments rebuild instantly; prod requires a migration). Mitigation: stay on dev Convex until Phase 4 ships UI; only `bunx convex deploy` to prod after Phase 4 is solid.
 
-### Mac Mini interruption during pipelines
+### Pipeline durability — covered by Inngest
 
-Without Inngest's durability, a pipeline interrupted mid-flight (Mac Mini crashes during ElevenLabs call) is lost. Mitigation: each pipeline writes a Convex row at start with status `running`. A `finally` block updates to `done` or `failed`. On restart, a small reconciler can mark `running` rows as `failed-orphaned`. User re-triggers if they want to retry. Acceptable for personal scale.
+Mid-pipeline crashes (Mac Mini restart during a tier-2 extraction or an ElevenLabs call) are handled by Inngest's step replay — when the function resumes after a transient failure, completed steps are skipped. This is the property we'd lose if we ripped Inngest out, and a key reason it's staying.
 
-### Lost in-flight triage decisions
+### Triage durability — covered by Inngest
 
-Capture triage uses an in-memory pending-decisions Map. If the Mac Mini restarts while a triage Slack message is unanswered (4h timeout), the decision is lost. Mitigation: persist pending triages to a `triageDecisions` Convex table; on restart, rebuild the Map from rows with status `pending`. Acceptable to do this only if it actually happens; deferred until pain.
+Capture triage uses `step.waitForEvent` with a 4h timeout. If the Mac Mini restarts during the wait, Inngest holds the suspended state on its side; the function resumes when the user clicks the triage button. This too is a property we'd lose with plain async.
 
 ### Convex outage
 
@@ -409,12 +383,12 @@ The architecture commits us to running an always-on process. If we ever want ser
 - Composio integrations
 - Multi-user / client deployment
 - Mini-PaaS for vibecoded apps
-- Cold-email enrichment / SEO content gen workflows
+- Cold-email enrichment / SEO content gen workflows (built later as additional Inngest functions)
 - exe.dev migration
-- Inngest Cloud (skipped entirely — replaced by plain async)
 - WorkflowKit / AgentKit
 - Vector recall (substring is enough until it isn't)
 - iOS app interface
+- Cross-system correlation tables (`captures`, `voiceMemos`, `vaultNotes`) — only `inflightWorkflows` is in scope
 
 ## Open questions
 
@@ -427,8 +401,6 @@ The architecture commits us to running an always-on process. If we ever want ser
 
 - `src/agent/dispatcher.ts`
 - `src/agent/executor.ts`
-- `src/pipelines/capture.ts`
-- `src/pipelines/voiceMemo.ts`
 - `src/lib/convex.ts` (Convex client wrapper)
 - `convex/schema.ts`
 - `convex/messages.ts`
@@ -436,29 +408,39 @@ The architecture commits us to running an always-on process. If we ever want ser
 - `convex/executionAgents.ts`
 - `convex/agentLogs.ts`
 - `convex/usageRecords.ts`
-- `convex/captures.ts`
-- `convex/voiceMemos.ts`
-- `convex/vaultNotes.ts`
+- `convex/inflightWorkflows.ts`
 - `convex/drafts.ts`
+- `convex/memoryRecords.ts` (simplified — content + tags only)
 - `convex/memoryEvents.ts`
 - `convex/settings.ts`
 - `debug/` (ported from `/Users/kyrelldixon/projects/boop-agent/debug/`)
+- `docs/boop-port-attribution.md` (file paths + commit hashes for ported Boop code)
 
 ## Files to be deleted
 
-- `src/inngest/` (entire directory)
-- `ops/com.kyrelldixon.inngest-dev.plist`
+- `src/inngest/functions/handle-message.ts` (Bolt calls dispatcher directly now)
+- `ops/com.kyrelldixon.inngest-dev.plist` (replaced by Inngest Cloud)
 - `/Library/LaunchDaemons/com.kyrelldixon.inngest-dev.plist` (on Mac Mini)
 - Old session-file logic in `src/lib/sessions.ts` (after Phase 2 stable)
 - `inngest.kyrelldixon.com` hostname in `~/.cloudflared/config.yml` (on Mac Mini)
 
 ## Files to be modified
 
-- `src/index.ts` — register dispatcher route, drop Inngest serve handler
-- `src/bolt/listeners/message.ts` — call dispatcher directly instead of `inngest.send()`
+- `src/index.ts` — wire Convex client; Inngest serve handler stays
+- `src/bolt/listeners/message.ts` — call dispatcher directly instead of `inngest.send()` for `agent.message.received`; capture/voice-memo events still go via Inngest
 - `src/lib/sessions.ts` — replace with Convex-backed equivalents
 - `src/agent/session.ts` — adapt to Convex
-- `package.json` — add `convex`, remove `inngest`
-- `.env.schema` — add `CONVEX_URL`, `CONVEX_DEPLOY_KEY`
+- `package.json` — add `convex`; **keep `inngest`**
+- `.env.schema` — add `CONVEX_URL`, `CONVEX_DEPLOY_KEY`, `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`
 - `scripts/deploy.sh` — add `bunx convex deploy` step
-- `CLAUDE.md` — update architecture section
+- `CLAUDE.md` — update architecture section to reflect two-plane split
+
+## Files unchanged
+
+- `src/inngest/functions/handle-capture.ts`
+- `src/inngest/functions/handle-voice-memo.ts`
+- `src/inngest/functions/extract-jina.ts`, `extract-local.ts`, `extract-cf-browser.ts`, `transcribe-elevenlabs.ts`
+- `src/capture/` (extractors, vault writer, templates, schema)
+- `src/voice-memo/` (templates)
+- `src/lib/streams.ts` (interruption — already in-process)
+- Existing varlock setup, CF Tunnel config, deploy.sh shell mechanics
