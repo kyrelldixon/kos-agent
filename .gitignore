@@ -8,3 +8,4 @@ dist/
 .restate/
 restate-data/
 .worktrees/
+.DS_Store
